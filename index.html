@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>발전량 계산 도구</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#f4f4f1; --panel:#fcfcfb; --line:#dddcd6; --line2:#ebeae5;
+  --ink:#0b0b0b; --ink2:#52514e; --ink3:#8a8984;
+  --acc:#2a78d6; --acc-d:#1c5cab; --acc-l:#e8f1fc;
+  --good:#0ca30c; --warn:#b97800; --bad:#d03b3b;
+  --s1:#86b6ef; --s9:#0d366b;
+  --mono:'IBM Plex Mono',ui-monospace,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:13px/1.45 'Noto Sans KR',system-ui,sans-serif}
+button,input,select,textarea{font:inherit;color:inherit}
+header.top{display:flex;align-items:center;gap:14px;padding:10px 18px;background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:20}
+header.top h1{font-size:16px;margin:0;font-weight:700;letter-spacing:-.2px}
+header.top .proj{display:flex;align-items:center;gap:6px;color:var(--ink2)}
+header.top .proj input{border:1px solid transparent;background:transparent;padding:3px 6px;border-radius:4px;width:220px}
+header.top .proj input:hover,header.top .proj input:focus{border-color:var(--line);background:#fff;outline:none}
+.sp{flex:1}
+.btn{border:1px solid var(--line);background:#fff;padding:5px 11px;border-radius:5px;cursor:pointer;white-space:nowrap}
+.btn:hover{border-color:#b9b8b1;background:#fafaf8}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+.btn.pri:hover{background:var(--acc-d)}
+.btn.sm{padding:2px 8px;font-size:12px}
+.btn.ghost{border-color:transparent;background:transparent;color:var(--ink2)}
+.btn.ghost:hover{background:#eeede8}
+.btn:disabled{opacity:.45;cursor:default}
+.layout{display:grid;grid-template-columns:220px 1fr;min-height:calc(100vh - 50px)}
+aside{border-right:1px solid var(--line);background:var(--panel);padding:12px 10px}
+aside h3{font-size:12px;color:var(--ink3);font-weight:500;margin:4px 6px 8px;display:flex;justify-content:space-between;align-items:center}
+.site{padding:7px 9px;border-radius:5px;cursor:pointer;margin-bottom:2px;display:flex;justify-content:space-between;gap:6px}
+.site:hover{background:#f0efea}
+.site.on{background:var(--acc-l);color:var(--acc-d);font-weight:500}
+.site small{color:var(--ink3);font-weight:400}
+main{padding:0 22px 40px;min-width:0}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin:0 -22px 16px;padding:0 22px;background:var(--panel)}
+.tab{padding:10px 14px;border-bottom:2px solid transparent;cursor:pointer;color:var(--ink2)}
+.tab.on{border-color:var(--acc);color:var(--ink);font-weight:500}
+.tab.off{color:var(--ink3);cursor:default}
+.tab .n{display:inline-block;width:18px;height:18px;border-radius:50%;background:#e6e5df;text-align:center;font-size:11px;line-height:18px;margin-right:5px}
+.tab.on .n{background:var(--acc);color:#fff}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:14px 16px;margin-bottom:14px}
+.card h2{font-size:14px;margin:0 0 10px;font-weight:700;display:flex;align-items:center;gap:8px}
+.card h2 .sub{font-weight:400;color:var(--ink3);font-size:12px}
+.card h4{font-size:12.5px;margin:14px 0 6px;color:var(--ink2);font-weight:500}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+.fld{display:flex;flex-direction:column;gap:3px}
+.fld label{font-size:11.5px;color:var(--ink2)}
+.fld input,.fld select{border:1px solid var(--line);border-radius:4px;padding:4px 7px;background:#fff;min-width:0}
+.fld input:focus,.fld select:focus{outline:2px solid var(--acc-l);border-color:var(--acc)}
+.fld input.n{width:90px;text-align:right;font-family:var(--mono)}
+.hint{color:var(--ink3);font-size:11.5px}
+.drop{border:1.5px dashed #c5c4bd;border-radius:7px;padding:18px;text-align:center;color:var(--ink2);cursor:pointer;background:#fff;transition:.15s}
+.drop.over{border-color:var(--acc);background:var(--acc-l)}
+.drop b{color:var(--ink)}
+.dslist{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.ds{border:1px solid var(--line);border-radius:6px;padding:8px 10px;background:#fff;cursor:pointer;min-width:200px;max-width:320px;position:relative}
+.ds:hover{border-color:#b9b8b1}
+.ds.on{border-color:var(--acc);box-shadow:0 0 0 2px var(--acc-l)}
+.ds .t{font-weight:500;display:flex;gap:6px;align-items:center;padding-right:16px}
+.ds .m{color:var(--ink3);font-size:11.5px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-all}
+.ds .x{position:absolute;right:6px;top:5px;color:var(--ink3);cursor:pointer;font-size:14px;line-height:1}
+.ds .x:hover{color:var(--bad)}
+.tag{white-space:nowrap;flex:none;font-size:10.5px;padding:1px 6px;border-radius:3px;background:#eeede8;color:var(--ink2);font-weight:500}
+.tag.ts{background:#e3efe3;color:#226b22}.tag.wg{background:var(--acc-l);color:var(--acc-d)}.tag.sec{background:#f6ecdc;color:#8a5a00}
+.tag.blank{background:#fdf0e3;color:#a4500f;margin-top:3px;align-self:flex-start}.srcl{display:inline-block;vertical-align:middle;font-size:10.5px;color:var(--ink3);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px}
+.fld input::placeholder{color:#c9c8c1}
+.tag.design{background:var(--ink);color:#fff}
+table.t{border-collapse:collapse;width:100%;font-size:12px}
+table.t th,table.t td{border-bottom:1px solid var(--line2);padding:4px 7px;text-align:right;white-space:nowrap}
+table.t th{color:var(--ink2);font-weight:500;background:#f6f6f3;position:sticky;top:0}
+table.t td:first-child,table.t th:first-child{text-align:left}
+table.t td{font-family:var(--mono);font-size:11.8px}
+table.t td.txt{font-family:inherit;text-align:left;white-space:normal;min-width:64px}
+table.t tr.hub td{background:#f2f7fd;font-weight:500}
+table.t tr.sum td{border-top:1px solid var(--line);font-weight:500}
+table.t tr.sel td{background:#f2f7fd}
+table.t tr.click{cursor:pointer}table.t tr.click:hover td{background:#f8f8f5}
+table.t input{width:64px;text-align:right;border:1px solid var(--line2);border-radius:3px;padding:1px 4px;font-family:var(--mono);font-size:11.8px;background:#fff}
+.tw{overflow:auto;max-height:420px;border:1px solid var(--line2);border-radius:5px}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:14px}
+.chart{border:1px solid var(--line2);border-radius:6px;padding:8px 10px 4px;background:var(--panel);position:relative}
+.chart .ct{font-size:12.5px;font-weight:500;display:flex;justify-content:space-between;align-items:center;gap:6px}
+.chart .ct .seg{display:flex;gap:2px}
+.chart svg{display:block;width:100%;height:auto;overflow:visible}
+.seg button{border:1px solid var(--line);background:#fff;font-size:11px;padding:1px 7px;border-radius:3px;cursor:pointer}
+.seg button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+.ax text{fill:var(--ink3);font-size:10px;font-family:var(--mono)}
+.ax line,.ax path{stroke:#dcdbd5}
+.grid line{stroke:#efeee9}
+.lbl{fill:var(--ink2);font-size:10.5px}
+.tip{position:fixed;pointer-events:none;background:#1a1a19;color:#f0efec;padding:5px 8px;border-radius:4px;font-size:11.5px;z-index:99;display:none;white-space:nowrap;font-family:var(--mono)}
+.warnbox{background:#fdf6e6;border:1px solid #f0d9a2;border-radius:5px;padding:7px 10px;margin:8px 0;color:#6d4c00;font-size:12px}
+.warnbox div::before{content:"⚠ ";}
+.info{background:#f2f7fd;border:1px solid #cfe1f7;border-radius:5px;padding:7px 10px;margin:8px 0;color:#1c4a85;font-size:12px}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 14px;font-size:12px}
+.kv span:nth-child(odd){color:var(--ink2)}
+.kv span:nth-child(even){font-family:var(--mono)}
+details summary{cursor:pointer;color:var(--ink2);font-size:12px;margin:8px 0 4px}
+.design{border:1.5px solid var(--ink);}
+.big{display:flex;gap:22px;flex-wrap:wrap;margin:4px 0 8px}
+.big div{display:flex;flex-direction:column}
+.big b{font-size:20px;font-family:var(--mono);font-weight:500}
+.big span{font-size:11px;color:var(--ink2)}
+.modal{position:fixed;inset:0;background:rgba(20,20,18,.35);display:flex;align-items:center;justify-content:center;z-index:50}
+.modal .box{background:var(--panel);border-radius:8px;padding:16px 18px;width:min(860px,94vw);max-height:88vh;overflow:auto;box-shadow:0 10px 40px rgba(0,0,0,.2)}
+.modal h3{margin:0 0 10px;font-size:15px}
+.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#1a1a19;color:#fff;padding:8px 14px;border-radius:6px;z-index:90;font-size:12.5px;display:none;max-width:80vw}
+.legend{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:10.5px;color:var(--ink2);margin:2px 0 0}
+.legend i{display:inline-block;width:10px;height:3px;border-radius:2px;vertical-align:middle;margin-right:4px}
+.empty{color:var(--ink3);text-align:center;padding:30px 10px}
+.prog{height:3px;background:var(--line2);border-radius:2px;overflow:hidden;margin-top:8px;display:none}
+.prog i{display:block;height:100%;background:var(--acc);width:0;transition:width .2s}
+textarea.paste{width:100%;height:120px;font-family:var(--mono);font-size:11.5px;border:1px solid var(--line);border-radius:4px;padding:6px}
+.mono{font-family:var(--mono)}
+.ok{color:var(--good)}.ng{color:var(--bad)}
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>발전량 계산 도구</h1>
+  <div class="proj">프로젝트 <input id="projName" value="새 프로젝트"></div>
+  <div class="sp"></div>
+  <button class="btn" id="btnNew">새 프로젝트</button>
+  <button class="btn" id="btnOpen">열기</button>
+  <button class="btn" id="btnSnap">내부 저장</button>
+  <button class="btn" id="btnSave">파일로 저장</button>
+  <button class="btn" id="btnXlsx">엑셀 내보내기</button>
+  <input type="file" id="fileOpen" accept=".json,.wind.json" hidden>
+</header>
+<div class="layout">
+  <aside>
+    <h3>지점 <button class="btn sm" id="btnAddSite">+ 추가</button></h3>
+    <div id="siteList"></div>
+    <div class="hint" style="margin:14px 6px 0">지점마다 풍황자료를 따로 넣고, 다음 단계에서 쓸 대표 풍황을 정합니다.</div>
+  </aside>
+  <main>
+    <div class="tabs" id="tabs">
+      <div class="tab on" data-act="tab" data-v="wind"><span class="n">1</span>풍황자료</div>
+      <div class="tab" data-act="tab" data-v="turb"><span class="n">2</span>터빈</div>
+      <div class="tab" data-act="tab" data-v="zone"><span class="n">3</span>구역</div>
+      <div class="tab" data-act="tab" data-v="farm"><span class="n">4</span>배치·후류</div>
+      <div class="tab" data-act="tab" data-v="aep"><span class="n">5</span>발전량</div>
+      <div class="tab" data-act="tab" data-v="report"><span class="n">6</span>보고서</div>
+    </div>
+    <div id="view"></div>
+  </main>
+</div>
+<div class="tip" id="tip"></div>
+<div class="toast" id="toast"></div>
+<script src="lib/jszip.min.js"></script>
+<script src="wind-core.js"></script>
+<script src="hwpx-tpl.js"></script>
+<script src="hwpx.js"></script>
+<script type="module" src="app.js"></script>
+</body>
+</html>

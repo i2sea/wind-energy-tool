@@ -1,0 +1,14 @@
+# 원본 자료·결과물은 올리지 않음
+*.pdf
+*.sta
+*.csv
+*.txt
+*.xlsx
+*.hwpx
+*.docx
+*.dxf
+*.zip
+*.wind.json
+data/
+!lib/**
+!docs/**
