@@ -1339,7 +1339,7 @@ function viewZone() {
    <input type="file" id="zoneIn" multiple hidden accept=".pdf,.dxf,.csv,.txt,.tsv,.zip">
    <div class="row" style="margin-top:8px"><button class="btn sm" data-act="znew">새 구역</button></div></div>`;
   if (!Z) return h + `<div class="card empty">아직 구역이 없습니다. "새 구역"을 누르거나 파일을 넣어 주세요.</div>`;
-  h += `<div class="card"><h2><input data-zone="name" value="${esc(Z.name)}" style="border:none;font-weight:700;font-size:14px;background:transparent;width:380px"></h2>
+  h += `<div class="card"><h2><label class="nameedit" title="눌러서 구역 이름 바꾸기"><input data-zone="name" value="${esc(Z.name)}"><span class="pen">✎ 이름 바꾸기</span></label></h2>
    <div class="row"><button class="btn sm" data-act="zdxf">구역도 DXF</button><button class="btn sm" data-act="zpdf">구역도 PDF</button></div>
    <div class="row"><div class="fld"><label>UTM 구역 (위도·경도 변환)</label><input class="n" data-zone="zone" value="${Z.zone || 52}" style="width:60px"></div><div class="fld" style="flex:1"><label>메모</label><input data-zone="note" value="${esc(Z.note || '')}" style="width:100%"></div></div>
    <div class="grid2" style="margin-top:10px;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr)">${chartZone(Z)}<div>
