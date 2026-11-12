@@ -691,8 +691,11 @@ function mcpStations(S) {
   const L = A.filter(s => s.dist < 100).slice(0, 8); best.forEach(s => { if (!L.includes(s)) L.push(s); });
   return L.sort((a, b) => a.dist - b.dist);
 }
-function mcpPeriod(D) { const ts = D.ser.ts, now = new Date(); const t1 = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0)); const y0 = Math.min(new Date(ts[0]).getUTCFullYear(), t1.getUTCFullYear() - 9);
-  return { from: `${y0}-01-01`, to: W.fmtDate(t1.getTime()), m0: W.fmtDate(ts[0]), m1: W.fmtDate(ts[ts.length - 1] - 1) }; }
+// 측정 기간 표시: 지점에 직접 넣은 측정 시작일·종료일이 우선, 비어 있으면 자료의 처음·끝
+function measRangeTxt(S, D) { const ts = D.ser.ts, f0 = S ? parseYmd(S.measFrom) : NaN, t0 = S ? parseYmd(S.measTo) : NaN;
+  const a = Number.isFinite(f0) ? f0 : ts[0], b = Number.isFinite(t0) ? t0 : endDay(ts[ts.length - 1]); return { from: a, to: b, txt: `${W.fmtDate(a)} ~ ${W.fmtDate(b)}` }; }
+function mcpPeriod(D) { const mr = measRangeTxt(site(), D), now = new Date(); const t1 = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0)); const y0 = Math.min(new Date(mr.from).getUTCFullYear(), t1.getUTCFullYear() - 9);
+  return { from: `${y0}-01-01`, to: W.fmtDate(t1.getTime()), m0: W.fmtDate(mr.from), m1: W.fmtDate(mr.to) }; }
 function mcpGuide(D, open) {
   const S = site(), L = mcpStations(S), pd = mcpPeriod(D); const KO = { buoy: '해양기상부이', light: '등표', asos: '종관(ASOS)' };
   const how = `<ol style="margin:6px 0 0 18px;padding:0;font-size:12px;line-height:1.7"><li><a href="${MARINE_DASH}" target="_blank" rel="noopener">해양 바람·파랑 관측 대시보드</a>를 열고 지도에서 추천 지점을 누릅니다. 해양기상부이·등표·종관(ASOS) 모두 대시보드에서 받을 수 있습니다.</li><li>자료 내려받기 기간을 <b>${pd.from} ~ ${pd.to}</b>로 넣고 CSV를 내려받습니다. 측정 기간(${pd.m0} ~ ${pd.m1})이 들어가고 장기 10년 이상이 되는 기간입니다.</li><li>받은 CSV를 이 칸에 넣습니다.</li><li>상관계수 r을 적어 두고 "기준 자료 지우기" 후 다음 추천 관측소를 넣어 봅니다. <b>r이 가장 높은 1곳</b>을 다시 넣고 맨 아래 "대표 풍황으로 지정"을 누릅니다.</li></ol>`;
@@ -2252,7 +2255,7 @@ document.addEventListener('click', e => {
   else if (a === 'mcpClear') { const D = dsSel(); if (D) { delete D.mcp; D._mcp = null; render(); save(); } return; }
   else if (a === 'mcpDesign') { const D = dsSel(), C = tsCompute(D), r = mcpCompute(D, C); if (r && !r.err) mcpDesignNow(D, C, r); }
   else if (a === 'tsDesign') { const D = dsSel(), C = tsCompute(D), hb = C.hub;
-    if (D.mcp && D.mcp.ref) { const r = mcpCompute(D, C); if (r && !r.err) { mcpDesignNow(D, C, r); return; } toast('장기 보정을 계산할 수 없어 측정 자료 그대로 지정합니다' + (r && r.err ? ': ' + r.err : '.'), 6000); } setDesign({ dsId: D.id, src: `시계열: ${D.name} (${W.fmtDate(D.ser.ts[0])} ~ ${W.fmtDate(D.ser.ts[D.ser.ts.length - 1])})`, z: C.hubZ, mean: hb.mean, k: hb.k, A: hb.A, rho: C.rho ? C.rho.rhoHub : rhoDefault, alpha: C.sh ? C.sh.alpha : NaN, sectors: hb.sectors ? hb.sectors.map(s => ({ dir: s.dir, freq: s.freq, k: Number.isFinite(s.k) ? s.k : hb.k, A: Number.isFinite(s.A) ? s.A : hb.A })) : null, hist: hb.secHist || null, note: [hb.n < 52000 ? '1년 미만 측정 자료 — 장기 보정 전 값입니다.' : '', hb.sectors && hb.sectors.some(s => !Number.isFinite(s.k)) ? '자료가 적은 방향은 전체 Weibull로 채웠습니다.' : ''].filter(Boolean).join(' ') }); }
+    if (D.mcp && D.mcp.ref) { const r = mcpCompute(D, C); if (r && !r.err) { mcpDesignNow(D, C, r); return; } toast('장기 보정을 계산할 수 없어 측정 자료 그대로 지정합니다' + (r && r.err ? ': ' + r.err : '.'), 6000); } setDesign({ dsId: D.id, src: `시계열: ${D.name} (${measRangeTxt(site(), D).txt})`, z: C.hubZ, mean: hb.mean, k: hb.k, A: hb.A, rho: C.rho ? C.rho.rhoHub : rhoDefault, alpha: C.sh ? C.sh.alpha : NaN, sectors: hb.sectors ? hb.sectors.map(s => ({ dir: s.dir, freq: s.freq, k: Number.isFinite(s.k) ? s.k : hb.k, A: Number.isFinite(s.A) ? s.A : hb.A })) : null, hist: hb.secHist || null, note: [hb.n < 52000 ? '1년 미만 측정 자료 — 장기 보정 전 값입니다.' : '', hb.sectors && hb.sectors.some(s => !Number.isFinite(s.k)) ? '자료가 적은 방향은 전체 Weibull로 채웠습니다.' : ''].filter(Boolean).join(' ') }); }
   else if (a === 'wgDesign') {
     const D = dsSel(), r = D.reports[D.sel ?? D.reports.length - 1], elev = +S.elev || 0;
     const z = W.num($('#wgHub').value), al = W.num($('#wgAlpha').value); ui.wgHub = z;
