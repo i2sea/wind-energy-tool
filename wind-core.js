@@ -1034,6 +1034,7 @@ W.gapFill = function (B, O, opt = {}) {
   const nSec = opt.nSec || 12, sw = 360 / nSec, minPair = opt.minPair || 144, t0 = B.ts[0], t1 = B.ts[B.ts.length - 1];
   if (Math.abs((B.step || 600000) - (O.step || 600000)) > 1000) return { err: '두 자료의 시간 간격이 다릅니다(예: 10분과 1시간). 같은 간격 자료만 합칠 수 있습니다.' };
   const okWs = v => v >= 0 && v < 75, okDir = v => v >= 0 && v <= 360;
+  const BC = opt.clean || B.data; // 품질 검사 뒤 자료(빠진 시간 = NaN)로 빈 시간을 판단
   const bi = new Map(); for (let i = 0; i < B.ts.length; i++) bi.set(B.ts[i], i);
   const oi = new Map(); for (let i = 0; i < O.ts.length; i++) oi.set(O.ts[i], i);
   const bWs = B.columns.map((c, j) => c.role === 'ws' && Number.isFinite(c.height) ? j : -1).filter(j => j >= 0);
@@ -1050,23 +1051,29 @@ W.gapFill = function (B, O, opt = {}) {
     const h = B.columns[jb].height, jo = near(h); if (jo < 0) { heights.push({ h, skip: '같은 높이 자료 없음' }); continue; }
     const ho = O.columns[jo].height, jbd = col(B, 'dir', h), jod = col(O, 'dir', ho);
     // 같이 잰 시간
-    const P = []; for (let k = 0; k < N; k++) { const i = map[k]; if (i < 0) continue; const o = oi.get(ts[k]); if (o === undefined) continue; const vb = B.data[jb][i], vo = O.data[jo][o]; if (okWs(vb) && okWs(vo)) P.push([vo, vb, jod >= 0 ? O.data[jod][o] : NaN, jbd >= 0 ? B.data[jbd][i] : NaN]); }
+    const P = []; for (let k = 0; k < N; k++) { const i = map[k]; if (i < 0) continue; const o = oi.get(ts[k]); if (o === undefined) continue; const vb = BC[jb][i], vo = (opt.oclean || O.data)[jo][o]; if (okWs(vb) && okWs(vo)) P.push([vo, vb, jod >= 0 ? O.data[jod][o] : NaN, jbd >= 0 ? B.data[jbd][i] : NaN]); }
     const st = Q => { const n = Q.length; let sx = 0, sy = 0, sxx = 0, syy = 0, sxy = 0; for (const [x, y] of Q) { sx += x; sy += y; sxx += x * x; syy += y * y; sxy += x * y; } const mx = sx / n, my = sy / n, vx = sxx / n - mx * mx, vy = syy / n - my * my, cv = sxy / n - mx * my; return { n, mx, my, r: cv / Math.sqrt(vx * vy), b: Math.sqrt(vy / vx), a: my - Math.sqrt(vy / vx) * mx }; };
-    if (P.length < minPair) { heights.push({ h, ho, n: P.length, skip: `같이 잰 시간이 ${P.length}개로 부족` }); continue; }
-    const g = st(P); const secOf = d => okDir(d) ? Math.floor(((d + sw / 2) % 360) / sw) : -1;
-    const sec = Array.from({ length: nSec }, (_, s) => { const Q = P.filter(p => p[0] > 0.5 && secOf(p[2]) === s); const own = Q.length >= minPair; const f = own ? st(Q) : g;
+    let g, via = 'pair';
+    if (P.length < minPair) {
+      // 같이 잰 시간이 없으면: 두 측정기를 같은 장기 기준 자료(예: 울산 부이)에 각각 맞춰 간접 관계식
+      if (opt.ref && W.mcp) { const mB = W.mcp({ ts: B.ts, ws: BC[jb], dir: jbd >= 0 ? BC[jbd] : null, step: B.step }, opt.ref, { nSec }), oc = opt.oclean || O.data, mO = W.mcp({ ts: O.ts, ws: oc[jo], dir: jod >= 0 ? oc[jod] : null, step: O.step }, opt.ref, { nSec });
+        if (!mB.err && !mO.err) { const b = mB.all.b / mO.all.b; g = { a: mB.all.a - b * mO.all.a, b, r: Math.min(mB.all.r, mO.all.r), n: 0, rB: mB.all.r, rO: mO.all.r, nB: mB.conc.n, nO: mO.conc.n }; via = 'ref'; } }
+      if (!g && opt.direct) { g = { a: 0, b: 1, r: NaN, n: 0 }; via = 'copy'; }
+      if (!g) { heights.push({ h, ho, n: P.length, skip: `같이 잰 시간이 ${P.length}개로 부족` }); continue; }
+    } else g = st(P); const secOf = d => okDir(d) ? Math.floor(((d + sw / 2) % 360) / sw) : -1;
+    const sec = via !== 'pair' ? Array.from({ length: nSec }, (_, s) => ({ dir: s * sw, n: 0, a: g.a, b: g.b, r: g.r, own: false, veer: 0 })) : Array.from({ length: nSec }, (_, s) => { const Q = P.filter(p => p[0] > 0.5 && secOf(p[2]) === s); const own = Q.length >= minPair; const f = own ? st(Q) : g;
       const vr = Q.filter(p => p[0] > 2 && okDir(p[2]) && okDir(p[3])).map(p => ((p[3] - p[2] + 540) % 360) - 180); let veer = 0; if (vr.length >= 20) { let s1 = 0, c1 = 0; for (const a of vr) { s1 += Math.sin(a * Math.PI / 180); c1 += Math.cos(a * Math.PI / 180); } veer = Math.atan2(s1, c1) * 180 / Math.PI; }
       return { dir: s * sw, n: Q.length, a: f.a, b: f.b, r: f.r, own, veer }; });
     let nf = 0;
     for (let k = 0; k < N; k++) {
-      const i = map[k]; if (i >= 0 && okWs(B.data[jb][i])) continue; const o = oi.get(ts[k]); if (o === undefined) continue; const vo = O.data[jo][o]; if (!okWs(vo)) continue;
+      const i = map[k]; if (i >= 0 && okWs(BC[jb][i])) continue; const o = oi.get(ts[k]); if (o === undefined) continue; const vo = (opt.oclean || O.data)[jo][o]; if (!okWs(vo)) continue;
       const d = jod >= 0 ? O.data[jod][o] : NaN, s = secOf(d), f = s >= 0 && sec[s].own ? sec[s] : g;
       data[jb][k] = Math.max(0, f.a + f.b * vo); if (jbd >= 0) data[jbd][k] = okDir(d) ? ((d + (s >= 0 ? sec[s].veer : 0)) % 360 + 360) % 360 : NaN;
       for (const role of ['std', 'min', 'max', 'avail', 'cnr', 'wz']) { const a = col(B, role, h), b2 = col(O, role, ho); if (a < 0) continue; const v = b2 >= 0 ? O.data[b2][o] : NaN;
         data[a][k] = role === 'std' ? v * f.b : role === 'min' || role === 'max' ? Math.max(0, f.a + f.b * v) : role === 'avail' ? (Number.isFinite(v) ? v : 100) : v; }
       filled[k] = 1; nf++;
     }
-    heights.push({ h, ho, n: P.length, r: g.r, a: g.a, b: g.b, mx: g.mx, my: g.my, filled: nf, sec });
+    heights.push({ h, ho, n: P.length, r: g.r, a: g.a, b: g.b, mx: g.mx, my: g.my, filled: nf, sec, via, rB: g.rB, rO: g.rO, nB: g.nB, nO: g.nO });
   }
   // 높이 없는 열(기온·기압·습도): base에 없는 시각만 other 값 그대로
   B.columns.forEach((c, j) => { if (Number.isFinite(c.height)) return; const jo = O.columns.findIndex(x => x.role === c.role && !Number.isFinite(x.height)); if (jo < 0) return;
