@@ -305,7 +305,7 @@ async function handleFiles(fileList) {
     if (gps) {
       const { site: ns, dist } = nearestSite(gps);
       if (ns && dist <= TOL()) S = ns;
-      else if (ns && dist <= 100000) S = siteForLoc({ ...gps, label: [ser.meta['ID Client'], ser.device].filter(Boolean).join(' '), src: `시계열 파일 GPS (${SRCNAME(ser.file)})` }, created);
+      else if ((ns && dist <= 100000) || (!ns && gps.lat > LOC_BOX[1] && gps.lat < LOC_BOX[3] && gps.lon > LOC_BOX[0] && gps.lon < LOC_BOX[2])) S = siteForLoc({ ...gps, label: [ser.meta['ID Client'], ser.device].filter(Boolean).join(' '), src: `시계열 파일 GPS (${SRCNAME(ser.file)})` }, created);
       else note = `${SRCNAME(ser.file)}: 파일 속 GPS(${gps.lat.toFixed(3)}, ${gps.lon.toFixed(3)})가 ${ns ? '가장 가까운 지점과 ' + fi(dist / 1000) + ' km 떨어져' : '비교할 지점 좌표가 없어'} 장비 기본값으로 보고 쓰지 않았습니다.`;
     }
     if (!S) { const byTok = siteByTokens(tokens); S = byTok || site(); if (note) note += byTok ? ` 장비 번호(${ser.device})가 같은 "${siteName(byTok)}" 지점에 넣었습니다.` : ` 현재 지점 "${siteName(S)}"에 넣었습니다.`; }
@@ -592,6 +592,7 @@ function viewTS(D) {
     hub.sectors.forEach((x, i) => h += `<tr><td>${x.dir}</td><td>${f(x.freq, 2)}</td><td>${f(x.mean, 2)}</td><td>${f(x.k, 3)}</td><td>${f(x.A, 3)}</td><td>${f(x.energyPct, 1)}</td><td>${C.sh && C.sh.sectors[i] ? f(C.sh.sectors[i].alpha, 3) : '-'}</td><td>${fi(x.n)}</td></tr>`);
     h += `<tr class="sum"><td>전체</td><td>100.00</td><td>${f(hub.mean, 2)}</td><td>${f(hub.k, 3)}</td><td>${f(hub.A, 3)}</td><td>100.0</td><td>${C.sh ? f(C.sh.alpha, 3) : '-'}</td><td>${fi(hub.n)}</td></tr></table></div></div>`;
   }
+  h += fillCard(D);
   h += mcpCard(D, C);
   { const mr = D.mcp && D.mcp.ref ? mcpCompute(D, C) : null, useM = mr && !mr.err;
   h += `<div class="card"><h2>대표 풍황으로 지정</h2><div class="row"><button class="btn pri" data-act="tsDesign">${useM ? `장기 보정 결과(${esc(D.mcp.ref.name || '기준 자료')})를 대표 풍황으로 지정` : '이 시계열의 허브높이 결과를 대표 풍황으로 지정'}</button><span class="hint">허브 해발 ${f(C.hubZ, 1)} m, 방향별 Weibull ${hub.sectors ? '포함' : '없음'}, 공기밀도 ${C.rho ? '측정 기온·기압으로 계산' : '자료 없음 → 1.225'}</span></div><div class="hint" style="margin-top:4px">${useM ? '장기 보정 자료가 있어 장기 보정 결과로 지정합니다. 측정 자료 그대로 쓰려면 장기 보정 칸에서 "기준 자료 지우기"를 누르세요.' : '장기 보정 칸에 기상청 자료를 넣으면 이 버튼이 장기 보정 결과로 지정합니다.'}</div></div>`; }
@@ -675,6 +676,27 @@ function pasteDialog(D) {
   });
 }
 
+/* ---------- 빈 기간 채우기 (다른 측정기와 합치기) ---------- */
+function fillCard(D) {
+  let h = `<div class="card" id="fillCard"><h2>빈 기간 채우기 <span class="sub">다른 측정기 자료로 이 자료의 빈 시간을 채운 합친 자료 만들기</span></h2>`;
+  if (D.fill) { const F = D.fill;
+    h += `<div class="kv"><span>기준 자료</span><span><b>${esc(F.base)}</b> (이 자료의 위치·높이 기준)</span><span>채운 자료</span><span>${esc(F.src)}${F.srcSite ? ` · ${esc(F.srcSite)}` : ''}${Number.isFinite(F.dist) ? ` · 두 측정기 거리 약 ${f(F.dist / 1000, 1)} km` : ''}</span>
+     <span>채운 구간</span><span>${F.ranges.length ? F.ranges.map(r => `${W.fmtDate(r[0], 1)} ~ ${W.fmtDate(r[1], 1)}`).join('<br>') : '없음'}</span><span>채운 시간</span><span>${fi(F.nFilled)}개 (10분 자료 기준 약 ${f(F.nFilled * (D.ser.step || 600000) / 86400000, 1)}일)</span></div>`;
+    h += `<div class="tw" style="margin-top:8px"><table class="t" style="max-width:760px"><tr><th>높이 m</th><th>채운 자료 높이 m</th><th>같이 잰 수</th><th>상관계수 r</th><th>a</th><th>b</th><th>채운 수</th><th>비고</th></tr>${F.heights.map(q => q.skip ? `<tr><td>${q.h}</td><td>${q.ho ?? '-'}</td><td>${fi(q.n || 0)}</td><td></td><td></td><td></td><td>0</td><td class="txt">${esc(q.skip)}</td></tr>` : `<tr><td>${q.h}</td><td>${q.ho}</td><td>${fi(q.n)}</td><td>${f(q.r, 3)}</td><td>${f(q.a, 3)}</td><td>${f(q.b, 3)}</td><td>${fi(q.filled)}</td><td class="txt">${q.r < 0.8 ? '상관 낮음' : ''}</td></tr>`).join('')}</table></div>
+     <div class="hint">높이마다 두 측정기가 같이 잰 시간으로 방향별 관계식(분산비, 이 자료 = a + b × 채운 자료, 풍향 차이 포함)을 구해, 이 자료에 값이 없는 시간만 바꿔 넣었습니다. 표의 a·b·r은 전체 식입니다. 원래 두 자료는 그대로 있습니다.</div>`;
+    const lo = F.heights.filter(q => !q.skip && q.r < 0.8);
+    if (lo.length) h += `<div class="warnbox"><div>상관계수가 0.8보다 낮은 높이가 있습니다(${lo.map(q => q.h + ' m').join(', ')}). 채운 값의 불확도가 큽니다.</div></div>`;
+    if (F.heights.some(q => !q.skip && q.n < 2016)) h += `<div class="warnbox"><div>같이 잰 시간이 2주(2,016개)보다 짧은 높이가 있습니다. 관계식이 한 계절만 반영합니다.</div></div>`;
+    return h + '</div>';
+  }
+  const ts = D.ser.ts, gaps = []; for (let i = 1; i < ts.length; i++) if (ts[i] - ts[i - 1] > 86400000) gaps.push([ts[i - 1], ts[i]]);
+  const others = []; P.sites.forEach(S => S.datasets.forEach(d => { if (d !== D && d.type === 'ts' && d.ser && !d.fill) others.push({ d, S }); }));
+  h += `<div class="hint">${gaps.length ? `하루 넘게 빈 구간 ${gaps.length}곳: ${gaps.slice(0, 4).map(g => `${W.fmtDate(g[0])} ~ ${W.fmtDate(g[1])} (${f((g[1] - g[0]) / 86400000, 1)}일)`).join(', ')}${gaps.length > 4 ? ' …' : ''}` : '하루 넘게 빈 구간은 없습니다(풍속이 무효인 시간은 채울 수 있습니다).'}</div>`;
+  if (!others.length) return h + `<div class="hint" style="margin-top:4px">채울 다른 측정기 시계열이 없습니다. 근처 측정기 자료를 넣으면 고를 수 있습니다.</div></div>`;
+  h += `<div class="row" style="margin-top:6px"><div class="fld"><label>채울 자료</label><select id="fillSrc">${others.map(o => `<option value="${o.d.id}">${esc(siteName(o.S))} · ${esc(o.d.name)} (${W.fmtDate(o.d.ser.ts[0])} ~ ${W.fmtDate(o.d.ser.ts[o.d.ser.ts.length - 1])})</option>`).join('')}</select></div><button class="btn pri" data-act="fillMake">합친 자료 만들기</button></div>
+   <div class="hint">이 자료(${esc(D.name)})를 기준으로, 두 측정기가 같이 잰 시간으로 높이·방향별 관계식을 구해 이 자료가 빈 시간만 채운 새 자료를 만듭니다. 그대로 이어 붙이지 않습니다. 원래 자료는 그대로 남습니다.</div>`;
+  return h + '</div>';
+}
 /* ---------- 장기 보정 (MCP) ---------- */
 // 기상청 해양기상부이·등표 위치 — 기상청 날씨누리 '기상부이 위치' 표(공개). 지점번호는 확인된 것만
 const KMA_BUOYS = [['덕적도',37.23611,126.01889,'22101'],['외연도',36.25,125.75,'22108'],['인천',37.09167,125.42889,'22185'],['서해170',36.13333,124.05694,''],['풍도',37.15833,126.41,''],['내파수도',36.45139,126.24,''],['연평도',37.61944,125.64833,''],['서해143',37.5,124.01667,''],['서해151',37.04972,124.61667,''],['서해163',36.75,125.60806,''],['칠발도',34.79333,125.77694,'22102'],['부안',35.65861,125.81389,'22186'],['서해206',34.0,123.2625,''],['가거도',34.0275,125.21472,''],['홍도',34.74667,125.24556,''],['서해190',35.0,124.13333,''],['위도동부',35.64306,126.35861,''],['자은',34.91917,125.86806,''],['신안',34.73333,126.24167,'22183'],['대치마도',35.0175,126.03194,''],['서해192',35.28306,125.15056,''],['마라도',33.08333,126.03333,'22107'],['서귀포',33.12806,127.02278,'22187'],['남해239',32.83333,124.73333,''],['남해465',31.66667,126.4,''],['남해244',32.72222,127.27222,''],['구엄',33.52083,126.37472,''],['위미',33.22369,126.71119,''],['신창',33.36686,126.10889,''],['거문도',34.00139,127.50139,'22103'],['추자도',33.79361,126.14111,'22184'],['거제도',34.76667,128.9,'22104'],['통영',34.39167,128.225,'22188'],['남해111',33.775,128.375,''],['소매물도',34.62111,128.53806,''],['지심도',34.82778,128.775,''],['이수도',34.97167,128.75833,''],['포항',36.35,129.78333,'22106'],['울산',35.34528,129.84139,'22189'],['울진',36.90694,129.87444,'22190'],['동해78',36.96667,130.51667,''],['죽변',37.10278,129.45944,''],['울릉도',37.45556,131.11444,'21229'],['동해',37.48056,129.95,'22105'],['동해57',38.36667,129.6,''],['고성',38.31722,128.63917,''],['삼척',37.46389,129.31806,''],['강릉',37.79833,129.06083,'']].map(([name, lat, lon, no]) => ({ name, lat, lon, no, kind: 'buoy' }));
@@ -2251,6 +2273,12 @@ document.addEventListener('click', e => {
   else if (a === 'secPaste') pasteDialog(dsSel());
   else if (a === 'secDesign') { const D = dsSel(), T = secTotals(D); const notes = []; if (T.overall) notes.push(`방향별 k·A가 없어 전체 Weibull(k ${D.wk}, A ${D.wA})을 모든 방향에 적용.`); if (!Number.isFinite(W.num(D.rho))) notes.push('공기밀도 입력이 없어 1.225 kg/m³(표준)로 넣었습니다.');
     setDesign({ dsId: D.id, src: `방향별 표: ${D.name}`, z: D.height, mean: T.mean, k: T.k, A: T.A, rho: W.num(D.rho) || rhoDefault, sectorMode: T.overall ? '전체 Weibull 공통' : '방향별 Weibull', sectors: D.rows.filter(r => r.freq > 0).map(r => ({ dir: r.dir, freq: r.freq * 100 / T.fs, k: T.overall ? D.wk : r.k, A: T.overall ? D.wA : r.A })), note: notes.join(' ') }); }
+  else if (a === 'fillMake') { const D = dsSel(); const id = $('#fillSrc') && $('#fillSrc').value; let OS = null, O = null; P.sites.forEach(S => S.datasets.forEach(d => { if (d.id === id) { O = d; OS = S; } })); if (!D || !O) return;
+    busy(() => { const r = W.gapFill(D.ser, O.ser, { nSec: D.opt.nSec || 12 }); if (r.err) { toast(r.err, 6000); return; }
+      if (!r.nFilled) { toast('채울 시간이 없습니다. 두 자료가 겹치는 기간과 빈 기간을 확인하세요.', 6000); return; }
+      const cs = siteCoord(S), co = siteCoord(OS), dist = cs && co ? havKm(cs.lat, cs.lon, co.lat, co.lon) * 1000 : NaN;
+      const ND = { id: uid(), type: 'ts', name: `${D.name} + ${O.name} 채움`, opt: JSON.parse(JSON.stringify(D.opt)), ser: r.ser, files: [...(D.files || [])], mcp: D.mcp && D.mcp.ref ? { opt: { ...D.mcp.opt }, ref: D.mcp.ref } : undefined, fill: { base: D.name, src: O.name, srcSite: OS === S ? '' : siteName(OS), dist, ranges: r.ranges, heights: r.heights.map(q => { const { sec, ...rest } = q; return rest; }), nFilled: r.nFilled, nAdded: r.nAdded, made: Date.now() } };
+      S.datasets.push(ND); S.sel = ND.id; render(); save(); toast(`합친 자료를 만들었습니다. ${fi(r.nFilled)}개 시간을 ${O.name}로 채웠습니다. 대표 풍황은 이 합친 자료에서 지정하세요.`, 7000); }); }
   else if (a === 'mcpAdd') { $('#mcpIn').click(); return; }
   else if (a === 'mcpClear') { const D = dsSel(); if (D) { delete D.mcp; D._mcp = null; render(); save(); } return; }
   else if (a === 'mcpDesign') { const D = dsSel(), C = tsCompute(D), r = mcpCompute(D, C); if (r && !r.err) mcpDesignNow(D, C, r); }
@@ -2629,6 +2657,10 @@ async function reportModel(F) {
     ['설치 표고', '', S.elev !== '' && S.elev != null ? `${S.elev} m` : '-'], ['측정 기간', '', mi ? `${measText(mi)} · ${sref(mi.src, '측정 기간')}` : '-'],
     ['측정 높이', '', heights.length ? heights.join(', ') + ' m' : '-']], align: ['C', 'C', 'L'] });
   if (mi) p(Number.isFinite(mi.from) && Number.isFinite(mi.to) ? `풍황자료는 ${siteName(S)}에서 ${kDate(mi.from)}부터 ${kDate(mi.to)}까지 측정하였다(약 ${f(mi.months, 1)}개월, 근거: ${mi.kind === '보고서' ? sref(mi.src, '측정 기간') : mi.src}).` : `풍황자료 측정 기간은 약 ${f(mi.months, 1)}개월이다(근거: ${sref(mi.src, '측정 기간')}). 시작일과 종료일은 1단계 지점 정보에 넣으면 보고서에 표시된다.`);
+  { const dD = S.design ? S.datasets.find(x => x.id === S.design.dsId) : null, Fl = dD && dD.fill;
+    if (Fl) { p(`측정 자료의 빈 기간은 근처 측정기 자료(${Fl.src}${Fl.srcSite ? `, ${Fl.srcSite}` : ''}${Number.isFinite(Fl.dist) ? `, 약 ${f(Fl.dist / 1000, 1)} km 떨어짐` : ''})로 채웠다. 두 측정기가 같이 잰 시간으로 높이·방향별 관계식(분산비)을 구해, 기준 측정기 값이 없는 시간만 변환한 값을 넣었다. 채운 구간은 ${Fl.ranges.map(r => `${kDate(r[0])} ~ ${kDate(r[1])}`).join(', ')}이고, 채운 자료는 ${fi(Fl.nFilled)}개(10분)이다.`);
+      table({ caption: '빈 기간 채우기 관계식 (높이별 전체 식)', title: '빈 기간 채우기', widths: [1, 1, 1.1, 1, 1, 1, 1.1], head: [['높이 (m)', '채운 자료 높이 (m)', '같이 잰 수', 'r', 'a', 'b', '채운 수']], rows: Fl.heights.filter(q => !q.skip).map(q => [q.h, q.ho, fi(q.n), f(q.r, 3), f(q.a, 3), f(q.b, 3), fi(q.filled)]), align: ['C', 'C', 'R', 'R', 'R', 'R', 'R'] });
+      if (Fl.heights.some(q => !q.skip && q.r < 0.8)) assume.push(['풍황', '빈 기간 채우기', `일부 높이 상관 0.8 미만 — 채운 구간 불확도 큼`]); } }
   h2('자료 분석');
   if (wgD) {
     const r = wgD.reports[wgD.reports.length - 1];
