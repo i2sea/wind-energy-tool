@@ -1023,7 +1023,8 @@ W.mcp = function (mast, ref, opt = {}) {
   for (let i = 0; i < ref.t.length; i++) { const tt = ref.t[i]; if (tt < t0 || tt > t1) continue; const v = ref.v[i], d = ref.d[i], s = secOf(v, d), q = s >= 0 ? sec[s] : null; const ft = q || g;
     lt.ts.push(tt + lag * HR); lt.ws.push(Math.max(0, ft.a + ft.b * v)); lt.dir.push(q && d >= 0 ? ((d + q.veer) % 360 + 360) % 360 : NaN); rs += v; rn++; }
   const conc = { ref: all.mx, mast: all.my, n: P.length, from: ref.t[rk.findIndex(k => mAt(k + lag))], to: ref.t[rk.length - 1 - [...rk].reverse().findIndex(k => mAt(k + lag))] };
-  return { lags, best, all: { ...all, ...g }, sec, conc, refLT: rn ? rs / rn : NaN, ltN: rn, lt: { ts: Float64Array.from(lt.ts), ws: Float32Array.from(lt.ws), dir: Float32Array.from(lt.dir), step: HR }, ltFrom: lt.ts[0], ltTo: lt.ts[lt.ts.length - 1] };
+  const kk = Math.max(1, Math.ceil(P.length / 1500)), sample = P.filter((_, i) => i % kk === 0).map(q => [q[0], +q[1].toFixed(2)]);
+  return { lags, best, all: { ...all, ...g }, sec, conc, sample, refLT: rn ? rs / rn : NaN, ltN: rn, lt: { ts: Float64Array.from(lt.ts), ws: Float32Array.from(lt.ws), dir: Float32Array.from(lt.dir), step: HR }, ltFrom: lt.ts[0], ltTo: lt.ts[lt.ts.length - 1] };
 };
 
 G.WindCore = W;
