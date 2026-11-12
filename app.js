@@ -429,7 +429,7 @@ function tsCompute(D) {
 
 /* ================= 화면 ================= */
 function render() {
-  if (fixCRS(P)) { toast('TM 좌표(' + [...new Set(P.zones.filter(z => z.crsFrom).map(z => W.TM_ORIGINS[z.crsFrom].name))].join(', ') + ')를 알아보고 UTM 52N으로 바꿨습니다.'); save(); }
+  try { if (fixCRS(P)) { toast('TM 좌표(' + [...new Set((P.zones || []).concat(P.farms || []).filter(z => z.crsFrom).map(z => W.TM_ORIGINS[z.crsFrom].name.replace(/ \(.*/, '')))].join(', ') + ')를 알아보고 UTM 52N으로 바꿨습니다.', 5000); save(); } } catch (e) { console.warn('fixCRS', e); }
   $('#projName').value = P.name; ensureTurbines();
   document.querySelectorAll('#tabs .tab[data-v]').forEach(t => t.classList.toggle('on', t.dataset.v === ui.tab));
   $('#siteList').innerHTML = P.sites.map(s => `<div class="site ${s.id === P.active ? 'on' : ''}" data-act="site" data-id="${s.id}"><span>${esc(siteName(s))}${siteCoord(s) ? '' : ' <small style="color:#a4500f">좌표 없음</small>'}</span><small>${s.datasets.length ? s.datasets.length + '개' : ''}${s.design ? ' ●' : ''}</small></div>`).join('');
@@ -1251,19 +1251,23 @@ function tmPick(sample) {
     if (d < bd) { bd = d; best = k; } }
   return best;
 }
+const isTmPt = (x, y) => x > 0 && x < 400000 && y > 0 && y < 1000000;
 function fixCRS(p) {
-  let n = 0; const conv = (arr, key, zone) => arr.map(q => { const g = W.tmToLatLon(q[0], q[1], key), u = W.latLonToUtm(g.lat, g.lon, zone); return [u.E, u.N]; });
+  if (!W.looksTm || !W.tmToLatLon) return 0;
+  let n = 0; const one = (x, y, key, zone) => { const g = W.tmToLatLon(x, y, key), u = W.latLonToUtm(g.lat, g.lon, zone); return [u.E, u.N]; };
+  const arr = (a, key, zone) => (a || []).map(q => isTmPt(q[0], q[1]) ? one(q[0], q[1], key, zone) : q);
+  const rws = (a, key, zone) => (a || []).forEach(r => { if (isTmPt(r.x, r.y)) { const u = one(r.x, r.y, key, zone); r.x = u[0]; r.y = u[1]; } });
   (p.zones || []).forEach(Z => {
     const all = [...Z.bounds.flatMap(b => b.pts || []), ...Z.excl.flatMap(e => e.pts || []), ...(Z.pts || []).map(q => [q.x, q.y])];
-    if (!all.length || !W.looksTm(all)) return;
-    const key = tmPick(all[0]), zone = Z.zone || 52; Z.zone = zone; Z.crsFrom = key; n++;
-    Z.bounds.forEach(b => b.pts = conv(b.pts, key, zone)); Z.excl.forEach(e => e.pts = conv(e.pts, key, zone));
-    (Z.pts || []).forEach(q => { const [u] = conv([[q.x, q.y]], key, zone); q.x = u[0]; q.y = u[1]; });
+    const tm = all.filter(q => isTmPt(q[0], q[1])); if (!tm.length) return;
+    const key = Z.crsFrom || tmPick(tm[0]), zone = Z.zone || 52; Z.zone = zone; Z.crsFrom = key; n++;
+    Z.bounds.forEach(b => b.pts = arr(b.pts, key, zone)); Z.excl.forEach(e => e.pts = arr(e.pts, key, zone)); rws(Z.pts, key, zone);
   });
   (p.farms || []).forEach(F => {
-    if (F.crs !== 'utm') return; const rows = [...F.rows, ...(F.ext || []).flatMap(e => e.rows || [])]; if (!rows.length || !W.looksTm(rows.map(r => [r.x, r.y]))) return;
-    const Z = (p.zones || []).find(z => z.id === F.zoneId); const key = (Z && Z.crsFrom) || tmPick([rows[0].x, rows[0].y]), zone = F.zone || 52; F.crsFrom = key; n++;
-    rows.forEach(r => { const [u] = conv([[r.x, r.y]], key, zone); r.x = u[0]; r.y = u[1]; });
+    const rows = [...(F.rows || []), ...(F.parked || []), ...(F.ext || []).flatMap(e => e.rows || [])]; const tm = rows.filter(r => isTmPt(r.x, r.y)); if (!tm.length) return;
+    const Z = (p.zones || []).find(z => z.id === F.zoneId); if (F.crs !== 'utm' && !(Z && Z.crsFrom)) return;
+    const key = (Z && Z.crsFrom) || F.crsFrom || tmPick([tm[0].x, tm[0].y]), zone = F.zone || (Z && Z.zone) || 52; F.crs = 'utm'; F.zone = zone; F.crsFrom = key; F._cache = null; n++;
+    rws(F.rows, key, zone); rws(F.parked, key, zone); (F.ext || []).forEach(e => rws(e.rows, key, zone));
   });
   return n;
 }
