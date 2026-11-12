@@ -1,4 +1,5 @@
 import * as pdfjsLib from './lib/pdf.min.mjs';
+import COAST_KR from './lib/coast-kr.js';
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
 const W = window.WindCore;
 
@@ -1350,6 +1351,39 @@ function zoneSvg(Z, M) {
   return s;
 }
 function zoneExtent(Z) { if (!Z) return [[], []]; const P2 = [...Z.bounds.flatMap(b => b.pts), ...Z.excl.flatMap(e => e.pts), ...(Z.pts || []).map(p => [p.x, p.y])]; return [P2.map(p => p[0]), P2.map(p => p[1])]; }
+// 위치도 — 구역 지도는 구역만 확대하므로 좌표계가 틀려도 알아보기 어렵다. 한반도 해안선 위에 대략 위치를 찍어 확인한다.
+const LOC_BOX = [123, 32, 132.5, 39.8];
+function locCheck(Z) {
+  const [zx, zy] = zoneExtent(Z); if (!zx.length) return null; const zone = Z.zone || 52;
+  const cx = (Math.min(...zx) + Math.max(...zx)) / 2, cy = (Math.min(...zy) + Math.max(...zy)) / 2, c = W.utmToLatLon(cx, cy, zone, true);
+  const inBox = c.lon > LOC_BOX[0] && c.lon < LOC_BOX[2] && c.lat > LOC_BOX[1] && c.lat < LOC_BOX[3];
+  const onLand = inBox && COAST_KR.some(r => W.inPoly(c.lon, c.lat, r));
+  const masts = P.sites.filter(s => siteCoord(s)).map(s => ({ n: siteName(s), lat: +s.lat, lon: +s.lon, d: W.haversine ? W.haversine(c.lat, c.lon, +s.lat, +s.lon) : 6371000 * Math.hypot((+s.lat - c.lat) * Math.PI / 180, (+s.lon - c.lon) * Math.PI / 180 * Math.cos(c.lat * Math.PI / 180)) })).sort((a, b) => a.d - b.d);
+  const warn = []; if (!inBox) warn.push('구역이 한반도 주변 바다 밖에 있습니다. 좌표계(UTM 구역, TM 원점)가 맞는지 확인하세요.'); else if (onLand) warn.push('구역 중심이 육지에 있습니다. 좌표가 맞는지 확인하세요.');
+  if (masts.length && masts[0].d > 60000) warn.push(`가장 가까운 측정기(${masts[0].n})까지 ${f(masts[0].d / 1000, 0)} km 떨어져 있습니다. 좌표나 측정기 위치를 확인하세요.`);
+  return { lat: c.lat, lon: c.lon, inBox, onLand, masts, warn };
+}
+function chartLocator(Z) {
+  const L = locCheck(Z); if (!L) return '';
+  const panel = (lon0, lat0, lon1, lat1, Wd, Ht, title, fine) => {
+    const k = Math.cos((lat0 + lat1) / 2 * Math.PI / 180), sc = Math.min(Wd / ((lon1 - lon0) * k), Ht / (lat1 - lat0));
+    const X = lon => (lon - lon0) * k * sc, Y = lat => Ht - (lat - lat0) * sc; const w = (lon1 - lon0) * k * sc, h = (lat1 - lat0) * sc;
+    const cid = 'lc' + Math.random().toString(36).slice(2, 8); let s = `<defs><clipPath id="${cid}"><rect width="${w.toFixed(0)}" height="${h.toFixed(0)}"/></clipPath></defs><rect width="${w.toFixed(0)}" height="${h.toFixed(0)}" fill="#e8f1fa"/><g clip-path="url(#${cid})">`;
+    COAST_KR.forEach(r => { if (r.every(p => p[0] < lon0 || p[0] > lon1) || r.every(p => p[1] < lat0 || p[1] > lat1)) return; s += `<polygon points="${r.map(p => `${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(' ')}" fill="#f1efe8" stroke="#a9a69c" stroke-width="0.6"/>`; });
+    if (fine) { const zone = Z.zone || 52; Z.bounds.forEach(b => { s += `<polygon points="${b.pts.map(q => { const g = W.utmToLatLon(q[0], q[1], zone, true); return `${X(g.lon).toFixed(1)},${Y(g.lat).toFixed(1)}`; }).join(' ')}" fill="rgba(42,120,214,0.25)" stroke="#2a78d6" stroke-width="1.2"/>`; }); }
+    s += '</g>';
+    L.masts.forEach(m => { if (m.lon < lon0 || m.lon > lon1 || m.lat < lat0 || m.lat > lat1) return; s += `<path d="M${X(m.lon).toFixed(1)},${(Y(m.lat) - 7).toFixed(1)}l6,10h-12z" fill="#eb6834" stroke="#fff" stroke-width="1.2" data-tip="측정기: ${esc(m.n)}"/>`; });
+    const zin = L.lon >= lon0 && L.lon <= lon1 && L.lat >= lat0 && L.lat <= lat1;
+    if (zin) s += `<circle cx="${X(L.lon).toFixed(1)}" cy="${Y(L.lat).toFixed(1)}" r="${fine ? 14 : 6}" fill="none" stroke="#d64545" stroke-width="2" data-tip="${esc(Z.name)} ${f(L.lat, 4)}°N ${f(L.lon, 4)}°E"/>`;
+    else s += `<text x="${(w / 2).toFixed(0)}" y="${(h / 2).toFixed(0)}" text-anchor="middle" style="font-size:12px;fill:#d64545;font-weight:700">구역이 이 지도 밖에 있습니다</text>`;
+    if (fine) { const km = [5, 10, 20].find(v => v * 1000 / 111320 / Math.cos(L.lat * Math.PI / 180) * k * sc > 50) || 20; const px = km * 1000 / 111320 / Math.cos(L.lat * Math.PI / 180) * k * sc; s += `<line x1="8" x2="${(8 + px).toFixed(1)}" y1="${h - 8}" y2="${h - 8}" stroke="#52514e" stroke-width="2"/><text x="${(8 + px / 2).toFixed(1)}" y="${h - 12}" text-anchor="middle" class="lbl">${km} km</text>`; }
+    return `<div style="flex:1;min-width:220px"><div class="hint" style="margin-bottom:3px">${title}</div><svg viewBox="0 0 ${w.toFixed(0)} ${h.toFixed(0)}" style="width:100%;max-height:300px;border:1px solid #dcdad3;border-radius:6px;overflow:hidden">${s}</svg></div>`;
+  };
+  const d = 0.45, a = L.inBox ? panel(L.lon - d / Math.cos(L.lat * Math.PI / 180), L.lat - d * 0.75, L.lon + d / Math.cos(L.lat * Math.PI / 180), L.lat + d * 0.75, 360, 280, '주변 (약 80 km)', true) : '';
+  const msg = L.warn.length ? `<div class="warn" style="margin-top:6px;padding:6px 8px;border-radius:6px;background:#fbe9e7;color:#a12d2d;font-size:12px">⚠ ${L.warn.join('<br>⚠ ')}</div>`
+    : `<div class="hint" style="margin-top:6px;color:#2f7a4f">✓ 위치 확인: 구역 중심 ${f(L.lat, 4)}°N, ${f(L.lon, 4)}°E${L.masts.length ? ` · 측정기(${esc(L.masts[0].n)})까지 ${f(L.masts[0].d / 1000, 1)} km` : ''}</div>`;
+  return `<div class="chart" style="margin-top:10px"><div class="ct">위치도 <span class="sub">빨간 원 = 구역, 주황 삼각형 = 측정기 · 해안선: Natural Earth</span></div><div class="row" style="gap:10px;align-items:flex-start;flex-wrap:wrap">${panel(LOC_BOX[0], LOC_BOX[1], LOC_BOX[2], LOC_BOX[3], 300, 280, '한반도 주변', false)}${a}</div>${msg}</div>`;
+}
 function chartZone(Z) {
   const [zx, zy] = zoneExtent(Z); const farms = (P.farms || []).filter(F => F.zoneId === Z.id); const fx = farms.flatMap(F => F.rows.map(r => r.x)), fy = farms.flatMap(F => F.rows.map(r => r.y));
   const S = P.sites.find(s => siteCoord(s)); let mast = null; if (S && zx.length) { const u = W.latLonToUtm(+S.lat, +S.lon, Z.zone || 52); if (Math.hypot(u.E - zx[0], u.N - zy[0]) < 60000) mast = { x: u.E, y: u.N, n: siteName(S) }; }
@@ -1371,7 +1405,7 @@ function viewZone() {
   h += `<div class="card"><h2><label class="nameedit" title="눌러서 구역 이름 바꾸기"><input data-zone="name" value="${esc(Z.name)}"><span class="pen">✎ 이름 바꾸기</span></label></h2>
    <div class="row"><button class="btn sm" data-act="zdxf">구역도 DXF</button><button class="btn sm" data-act="zpdf">구역도 PDF</button></div>
    <div class="row"><div class="fld"><label>UTM 구역 (위도·경도 변환)</label><input class="n" data-zone="zone" value="${Z.zone || 52}" style="width:60px"></div><div class="fld" style="flex:1"><label>메모</label><input data-zone="note" value="${esc(Z.note || '')}" style="width:100%"></div></div>
-   <div class="grid2" style="margin-top:10px;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr)">${chartZone(Z)}<div>
+   <div class="grid2" style="margin-top:10px;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr)"><div>${chartZone(Z)}${chartLocator(Z)}</div><div>
    <h3 style="font-size:13px;margin:0 0 6px">사업 구역 경계 <button class="btn sm" data-act="zpaste" data-v="bound">붙여넣기</button></h3>
    ${Z.bounds.length ? `<table class="t"><tr><th>이름</th><th>꼭짓점</th><th>면적 km²</th><th>출처</th><th></th></tr>${Z.bounds.map(b => `<tr><td class="txt"><input data-zb="${b.id}" data-k="name" value="${esc(b.name)}" style="width:150px;text-align:left"></td><td>${b.pts.length}</td><td>${f(W.polyArea(b.pts) / 1e6, 2)}</td><td class="txt"><span class="srcl" style="max-width:150px" title="${esc(b.src)}">${esc(b.src)}</span></td><td style="white-space:nowrap"><span class="btn sm" data-act="zcoord" data-t="bounds" data-id="${b.id}">좌표 보기</span> <span class="btn ghost sm" data-act="zidel" data-t="bounds" data-id="${b.id}">×</span></td></tr>`).join('')}</table>` : '<div class="hint">없음 — 해역이용 허가 구역 좌표 등을 넣어 주세요.</div>'}
    <h3 style="font-size:13px;margin:14px 0 6px">제외 구역 <button class="btn sm" data-act="zpaste" data-v="excl">붙여넣기</button></h3>
