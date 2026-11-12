@@ -718,6 +718,32 @@ W.latLonToUtm = function (lat, lon, zone) {
   let Nn = k0 * (M + N * Math.tan(ph) * (A * A / 2 + (5 - T + 9 * C + 4 * C * C) * A ** 4 / 24 + (61 - 58 * T + T * T + 600 * C - 330 * ep2) * A ** 6 / 720)); if (lat < 0) Nn += 10000000;
   return { E, N: Nn, zone };
 };
+// 국내 TM 좌표(GRS80, 2003년 이후 새 원점: 위도 38°, 가산값 X 200,000 · Y 600,000, 축척 1.0) ↔ 위도·경도.
+// 동부원점(EPSG:5187) 129°, 중부원점(5186) 127°, 서부원점(5185) 125°, 동해원점(5188) 131°. GRS80과 WGS84 차이는 mm 수준이라 같다고 봄
+W.TM_ORIGINS = { east: { name: 'TM 동부원점 (GRS80, EPSG:5187)', lon0: 129 }, central: { name: 'TM 중부원점 (GRS80, EPSG:5186)', lon0: 127 }, west: { name: 'TM 서부원점 (GRS80, EPSG:5185)', lon0: 125 }, eastsea: { name: 'TM 동해원점 (GRS80, EPSG:5188)', lon0: 131 } };
+(function () {
+  const a = 6378137, f = 1 / 298.257222101, e2 = f * (2 - f), ep2 = e2 / (1 - e2), r = Math.PI / 180, k0 = 1, lat0 = 38 * r, FE = 200000, FN = 600000;
+  const Mof = ph => a * ((1 - e2 / 4 - 3 * e2 * e2 / 64 - 5 * e2 ** 3 / 256) * ph - (3 * e2 / 8 + 3 * e2 * e2 / 32 + 45 * e2 ** 3 / 1024) * Math.sin(2 * ph) + (15 * e2 * e2 / 256 + 45 * e2 ** 3 / 1024) * Math.sin(4 * ph) - (35 * e2 ** 3 / 3072) * Math.sin(6 * ph));
+  const M0 = Mof(lat0);
+  W.latLonToTm = function (lat, lon, key = 'east') {
+    const lam0 = W.TM_ORIGINS[key].lon0 * r, ph = lat * r, la = lon * r;
+    const N = a / Math.sqrt(1 - e2 * Math.sin(ph) ** 2), T = Math.tan(ph) ** 2, C = ep2 * Math.cos(ph) ** 2, A = Math.cos(ph) * (la - lam0);
+    const X = FE + k0 * N * (A + (1 - T + C) * A ** 3 / 6 + (5 - 18 * T + T * T + 72 * C - 58 * ep2) * A ** 5 / 120);
+    const Y = FN + k0 * (Mof(ph) - M0 + N * Math.tan(ph) * (A * A / 2 + (5 - T + 9 * C + 4 * C * C) * A ** 4 / 24 + (61 - 58 * T + T * T + 600 * C - 330 * ep2) * A ** 6 / 720));
+    return { E: X, N: Y };
+  };
+  W.tmToLatLon = function (E, N, key = 'east') {
+    const lam0 = W.TM_ORIGINS[key].lon0, x = E - FE, M = M0 + (N - FN) / k0, mu = M / (a * (1 - e2 / 4 - 3 * e2 * e2 / 64 - 5 * e2 ** 3 / 256));
+    const e1 = (1 - Math.sqrt(1 - e2)) / (1 + Math.sqrt(1 - e2));
+    const p1 = mu + (3 * e1 / 2 - 27 * e1 ** 3 / 32) * Math.sin(2 * mu) + (21 * e1 * e1 / 16 - 55 * e1 ** 4 / 32) * Math.sin(4 * mu) + (151 * e1 ** 3 / 96) * Math.sin(6 * mu) + (1097 * e1 ** 4 / 512) * Math.sin(8 * mu);
+    const C1 = ep2 * Math.cos(p1) ** 2, T1 = Math.tan(p1) ** 2, N1 = a / Math.sqrt(1 - e2 * Math.sin(p1) ** 2), R1 = a * (1 - e2) / Math.pow(1 - e2 * Math.sin(p1) ** 2, 1.5), D = x / (N1 * k0);
+    const lat = p1 - (N1 * Math.tan(p1) / R1) * (D * D / 2 - (5 + 3 * T1 + 10 * C1 - 4 * C1 * C1 - 9 * ep2) * D ** 4 / 24 + (61 + 90 * T1 + 298 * C1 + 45 * T1 * T1 - 252 * ep2 - 3 * C1 * C1) * D ** 6 / 720);
+    const lon = (D - (1 + 2 * T1 + C1) * D ** 3 / 6 + (5 - 2 * C1 + 28 * T1 - 3 * C1 * C1 + 8 * ep2 + 24 * T1 * T1) * D ** 5 / 120) / Math.cos(p1);
+    return { lat: lat / r, lon: lam0 + lon / r };
+  };
+})();
+// 좌표 묶음이 국내 TM(가산값 200,000/600,000 체계)으로 보이는지: N(Y)이 100만 미만이고 E(X)가 0~40만 → UTM(북반구 N 수백만)과 구분
+W.looksTm = pts => pts.length > 0 && pts.every(p => p[1] > 0 && p[1] < 1000000 && p[0] > 0 && p[0] < 400000);
 W.overlapFrac = function (Rw, r, d) {
   if (d >= Rw + r) return 0; if (d <= Rw - r) return 1; if (d <= r - Rw) return (Rw * Rw) / (r * r);
   const a = Math.acos((d * d + r * r - Rw * Rw) / (2 * d * r)), b = Math.acos((d * d + Rw * Rw - r * r) / (2 * d * Rw));

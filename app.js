@@ -429,6 +429,7 @@ function tsCompute(D) {
 
 /* ================= 화면 ================= */
 function render() {
+  if (fixCRS(P)) { toast('TM 좌표(' + [...new Set(P.zones.filter(z => z.crsFrom).map(z => W.TM_ORIGINS[z.crsFrom].name))].join(', ') + ')를 알아보고 UTM 52N으로 바꿨습니다.'); save(); }
   $('#projName').value = P.name; ensureTurbines();
   document.querySelectorAll('#tabs .tab[data-v]').forEach(t => t.classList.toggle('on', t.dataset.v === ui.tab));
   $('#siteList').innerHTML = P.sites.map(s => `<div class="site ${s.id === P.active ? 'on' : ''}" data-act="site" data-id="${s.id}"><span>${esc(siteName(s))}${siteCoord(s) ? '' : ' <small style="color:#a4500f">좌표 없음</small>'}</span><small>${s.datasets.length ? s.datasets.length + '개' : ''}${s.design ? ' ●' : ''}</small></div>`).join('');
@@ -1242,6 +1243,30 @@ function addZoneItem(Z, type, name, pts, src, extra = {}) {
   if (type === 'bound') Z.bounds.push({ id: uid(), name: name || `사업 구역 ${Z.bounds.length + 1}`, pts: q, src: src || '' });
   else if (type === 'excl') Z.excl.push({ id: uid(), name: name || `제외 구역 ${Z.excl.length + 1}`, pts: q, src: src || '', kind: extra.kind || '기타', buffer: extra.buffer ?? 0, shape: extra.shape || (q.length >= 3 ? 'poly' : 'line') });
 }
+// 한국 TM 좌표(동부·중부·서부·동해원점) → UTM 자동 변환. UTM 북좌표(한국 3.6~4.3백만 m)와 TM 북좌표(1백만 m 미만)는 겹치지 않아 구별된다.
+function tmPick(sample) {
+  const masts = P.sites.map(siteCoord).filter(Boolean); let best = 'east', bd = Infinity;
+  for (const k of Object.keys(W.TM_ORIGINS)) { const g = W.tmToLatLon(sample[0], sample[1], k); if (!(g.lat > 30 && g.lat < 40 && g.lon > 122 && g.lon < 134)) continue;
+    const d = masts.length ? Math.min(...masts.map(m => Math.hypot(m.lat - g.lat, (m.lon - g.lon) * Math.cos(g.lat * Math.PI / 180)))) : Math.abs(g.lon - W.TM_ORIGINS[k].lon0);
+    if (d < bd) { bd = d; best = k; } }
+  return best;
+}
+function fixCRS(p) {
+  let n = 0; const conv = (arr, key, zone) => arr.map(q => { const g = W.tmToLatLon(q[0], q[1], key), u = W.latLonToUtm(g.lat, g.lon, zone); return [u.E, u.N]; });
+  (p.zones || []).forEach(Z => {
+    const all = [...Z.bounds.flatMap(b => b.pts || []), ...Z.excl.flatMap(e => e.pts || []), ...(Z.pts || []).map(q => [q.x, q.y])];
+    if (!all.length || !W.looksTm(all)) return;
+    const key = tmPick(all[0]), zone = Z.zone || 52; Z.zone = zone; Z.crsFrom = key; n++;
+    Z.bounds.forEach(b => b.pts = conv(b.pts, key, zone)); Z.excl.forEach(e => e.pts = conv(e.pts, key, zone));
+    (Z.pts || []).forEach(q => { const [u] = conv([[q.x, q.y]], key, zone); q.x = u[0]; q.y = u[1]; });
+  });
+  (p.farms || []).forEach(F => {
+    if (F.crs !== 'utm') return; const rows = [...F.rows, ...(F.ext || []).flatMap(e => e.rows || [])]; if (!rows.length || !W.looksTm(rows.map(r => [r.x, r.y]))) return;
+    const Z = (p.zones || []).find(z => z.id === F.zoneId); const key = (Z && Z.crsFrom) || tmPick([rows[0].x, rows[0].y]), zone = F.zone || 52; F.crsFrom = key; n++;
+    rows.forEach(r => { const [u] = conv([[r.x, r.y]], key, zone); r.x = u[0]; r.y = u[1]; });
+  });
+  return n;
+}
 // 구역 이동 (이전 버전: 단지마다 경계)
 function migrateZones(p) {
   if (!p.zones) p.zones = [];
@@ -1356,20 +1381,27 @@ function viewZone() {
 // 구역 경계·제외 구역 꼭짓점 좌표 보기: UTM(E·N)과 위도·경도(십진·도분초), 복사(엑셀에 붙여넣기)·CSV 내려받기
 const dmsTxt = (v, pos, neg) => { const a = Math.abs(v), d = Math.floor(a), mf = (a - d) * 60, m = Math.floor(mf), sec = (mf - m) * 60; return `${d}° ${String(m).padStart(2, '0')}′ ${sec.toFixed(2).padStart(5, '0')}″ ${v >= 0 ? pos : neg}`; };
 function zoneCoordDialog(Z, item) {
-  const zone = Z.zone || 52, rows = item.pts.map((q, i) => { const ll = W.utmToLatLon(q[0], q[1], zone, true); return [i + 1, q[0], q[1], ll.lat, ll.lon]; });
-  const head = ['번호', 'E (m)', 'N (m)', '위도', '경도', '위도 (도분초)', '경도 (도분초)'];
-  const line = r => [r[0], r[1].toFixed(2), r[2].toFixed(2), r[3].toFixed(7), r[4].toFixed(7), dmsTxt(r[3], 'N', 'S'), dmsTxt(r[4], 'E', 'W')];
+  const zone = Z.zone || 52, tk = Z.crsFrom || 'east', rows = item.pts.map((q, i) => { const ll = W.utmToLatLon(q[0], q[1], zone, true), t = W.latLonToTm(ll.lat, ll.lon, tk); return [i + 1, q[0], q[1], ll.lat, ll.lon, t.E, t.N]; });
+  const tmNm = W.TM_ORIGINS[tk].name.replace(/ \(.*/, '');
+  const head = ['번호', 'UTM E (m)', 'UTM N (m)', `${tmNm} X(E)`, `${tmNm} Y(N)`, '위도', '경도', '위도 (도분초)', '경도 (도분초)'];
+  const line = r => [r[0], r[1].toFixed(2), r[2].toFixed(2), r[5].toFixed(2), r[6].toFixed(2), r[3].toFixed(7), r[4].toFixed(7), dmsTxt(r[3], 'N', 'S'), dmsTxt(r[4], 'E', 'W')];
   const tsv = [head, ...rows.map(line)].map(a => a.join('\t')).join('\r\n');
+  const llTxt = rows.map(r => `${r[3].toFixed(6)}, ${r[4].toFixed(6)}`).join('\n');
+  const kml = () => { const c = rows.map(r => `${r[4].toFixed(7)},${r[3].toFixed(7)},0`); if (item.shape !== 'line' && c.length) c.push(c[0]); const nm = esc(item.name || '구역');
+    return `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>${esc(Z.name)}</name><Placemark><name>${nm}</name>${item.shape === 'line' ? `<LineString><coordinates>${c.join(' ')}</coordinates></LineString>` : `<Polygon><outerBoundaryIs><LinearRing><coordinates>${c.join(' ')}</coordinates></LinearRing></outerBoundaryIs></Polygon>`}</Placemark></Document></kml>`; };
   const box = document.createElement('div'); box.className = 'modal'; document.body.appendChild(box);
-  box.innerHTML = `<div class="box" style="width:min(860px,96vw)"><h3>${esc(item.name || '구역')} 꼭짓점 좌표 <span class="sub">${esc(Z.name)} · UTM ${zone}N (WGS84) · ${rows.length}점${item.shape === 'line' ? ' · 선' : ` · 면적 ${f(W.polyArea(item.pts) / 1e6, 3)} km²`}</span></h3>
-   <div class="tw" style="max-height:60vh"><table class="t"><tr>${head.map(h => `<th>${h}</th>`).join('')}</tr>${rows.map(r => `<tr>${line(r).map((v, k) => `<td${k >= 5 ? ' class="txt"' : ''}>${v}</td>`).join('')}</tr>`).join('')}</table></div>
-   <div class="hint" style="margin-top:6px">위도·경도는 UTM 좌표를 WGS84로 바꾼 값입니다. "복사"를 누르고 엑셀에 붙여넣으면 칸이 나뉘어 들어갑니다.</div>
-   <div class="row" style="justify-content:flex-end;gap:6px;margin-top:10px"><button class="btn" data-x="copy">복사 (엑셀용)</button><button class="btn" data-x="csv">CSV 내려받기</button><button class="btn pri" data-x="c">닫기</button></div></div>`;
+  box.innerHTML = `<div class="box" style="width:min(1000px,96vw)"><h3>${esc(item.name || '구역')} 꼭짓점 좌표 <span class="sub">${esc(Z.name)} · UTM ${zone}N (WGS84) · ${rows.length}점${item.shape === 'line' ? ' · 선' : ` · 면적 ${f(W.polyArea(item.pts) / 1e6, 3)} km²`}</span></h3>
+   <div class="tw" style="max-height:60vh"><table class="t"><tr>${head.map(h => `<th>${h}</th>`).join('')}</tr>${rows.map(r => `<tr>${line(r).map((v, k) => `<td${k >= 7 ? ' class="txt"' : ''}>${v}</td>`).join('')}</tr>`).join('')}</table></div>
+   <div class="hint" style="margin-top:6px">${Z.crsFrom ? `처음 넣은 좌표는 ${esc(W.TM_ORIGINS[Z.crsFrom].name)}였고, 도구 안에서는 UTM ${zone}N으로 바꿔 씁니다. ` : ''}위도·경도는 WGS84입니다. 해양 대시보드에는 "위도, 경도 복사"를 눌러 붙여넣으세요. 구글 어스에서 보려면 KML을 내려받으세요.</div>
+   <div class="row" style="justify-content:flex-end;gap:6px;margin-top:10px;flex-wrap:wrap"><button class="btn" data-x="ll">위도, 경도 복사 (대시보드용)</button><button class="btn" data-x="copy">복사 (엑셀용)</button><button class="btn" data-x="csv">CSV 내려받기</button><button class="btn" data-x="kml">KML 내려받기</button><button class="btn pri" data-x="c">닫기</button></div></div>`;
   box.addEventListener('click', async e => {
     const x = e.target.dataset.x; if (!x) { if (e.target === box) box.remove(); return; }
     if (x === 'c') box.remove();
-    if (x === 'copy') { try { await navigator.clipboard.writeText(tsv); toast('좌표를 복사했습니다. 엑셀에 붙여넣으세요.'); } catch (er) { toast('복사하지 못했습니다. CSV 내려받기를 쓰세요.'); } }
+    const cp = async (t, m) => { try { await navigator.clipboard.writeText(t); toast(m); } catch (er) { toast('복사하지 못했습니다. CSV 내려받기를 쓰세요.'); } };
+    if (x === 'll') cp(llTxt, '위도, 경도를 줄마다 복사했습니다.');
+    if (x === 'copy') cp(tsv, '좌표를 복사했습니다. 엑셀에 붙여넣으세요.');
     if (x === 'csv') download(`${safeNm(Z.name)}_${safeNm(item.name || '구역')}_좌표.csv`, new Blob(['﻿' + tsv.replace(/\t/g, ',')], { type: 'text/csv' }));
+    if (x === 'kml') download(`${safeNm(Z.name)}_${safeNm(item.name || '구역')}.kml`, new Blob([kml()], { type: 'application/vnd.google-earth.kml+xml' }));
   });
 }
 function idwSpeed(pts, x, y) { let a = 0, b = 0; for (const p of pts) { const d = Math.hypot(p.x - x, p.y - y); if (d < 1) return p.v; const w = 1 / (d * d); a += w * p.v; b += w; } return a / b; }
