@@ -582,6 +582,7 @@ function viewTS(D) {
     hub.sectors.forEach((x, i) => h += `<tr><td>${x.dir}</td><td>${f(x.freq, 2)}</td><td>${f(x.mean, 2)}</td><td>${f(x.k, 3)}</td><td>${f(x.A, 3)}</td><td>${f(x.energyPct, 1)}</td><td>${C.sh && C.sh.sectors[i] ? f(C.sh.sectors[i].alpha, 3) : '-'}</td><td>${fi(x.n)}</td></tr>`);
     h += `<tr class="sum"><td>전체</td><td>100.00</td><td>${f(hub.mean, 2)}</td><td>${f(hub.k, 3)}</td><td>${f(hub.A, 3)}</td><td>100.0</td><td>${C.sh ? f(C.sh.alpha, 3) : '-'}</td><td>${fi(hub.n)}</td></tr></table></div></div>`;
   }
+  h += mcpCard(D, C);
   h += `<div class="card"><h2>대표 풍황으로 지정</h2><div class="row"><button class="btn pri" data-act="tsDesign">이 시계열의 허브높이 결과를 대표 풍황으로 지정</button><span class="hint">허브 해발 ${f(C.hubZ, 1)} m, 방향별 Weibull ${hub.sectors ? '포함' : '없음'}, 공기밀도 ${C.rho ? '측정 기온·기압으로 계산' : '자료 없음 → 1.225'}</span></div></div>`;
   return h;
 }
@@ -663,6 +664,63 @@ function pasteDialog(D) {
   });
 }
 
+/* ---------- 장기 보정 (MCP) ---------- */
+function mcpCompute(D, C) {
+  const M = D.mcp; if (!M || !M.ref) return null; const o = M.opt || (M.opt = { method: 'vr', lag: 0, from: '', to: '' });
+  const key = JSON.stringify([C.key, D.qcRes && D.qcRes.key, M.ref.t.length, o]);
+  if (D._mcp && D._mcp.key === key) return D._mcp.res;
+  const S = site(), elev = +S.elev || 0, ser = { ...D.ser, data: D.qcRes.data };
+  const hs = W.hubSeries(ser, C.hubZ - elev, C.opt);
+  const res = W.mcp({ ts: ser.ts, ws: hs.ws, dir: hs.dir, step: ser.step }, M.ref, { nSec: C.opt.nSec, method: o.method, lag: +o.lag || 0, from: o.from ? W.parseDate(o.from + ' 00:00') : null, to: o.to ? W.parseDate(o.to + ' 23:59') : null });
+  if (!res.err) res.st = W.statsFor({ ts: res.lt.ts, step: res.lt.step, columns: [] }, { ws: res.lt.ws, dir: res.lt.dir }, { nSec: C.opt.nSec, weibull: C.opt.weibull, dirOffset: C.opt.dirOffset });
+  D._mcp = { key, res }; return res;
+}
+function mcpCard(D, C) {
+  const M = D.mcp;
+  let h = `<div class="card" id="mcpCard"><h2>장기 보정 (MCP) <span class="sub">기상청 등 장기 기준 자료로 측정 기간 풍황을 장기값으로 보정</span></h2>`;
+  if (!M || !M.ref) return h + `<div class="drop" id="dropMcp"><b>기상청 장기 자료를 끌어다 놓거나 눌러서 고르세요</b><br><span class="hint">기상자료개방포털(data.kma.go.kr) → 기상관측 → 종관기상관측(ASOS)·방재기상관측(AWS)·해양기상부이 → <b>시간자료</b> CSV. 여러 해 파일을 한꺼번에 넣어도 되고 zip도 됩니다. 풍속·풍향·일시 열만 읽습니다.</span></div>
+   <input type="file" id="mcpIn" multiple hidden accept=".csv,.txt,.zip">
+   <div class="hint" style="margin-top:6px">측정기 자료와 기준 자료가 겹치는 시간으로 방향별 관계식을 구하고, 기준 자료 전체 기간(예: 10년)에 적용해 측정기 허브높이의 장기 풍황을 만듭니다. 두 자료의 시각은 같은 기준(보통 KST)이어야 합니다.</div></div>`;
+  const R = M.ref, o = M.opt, r = mcpCompute(D, C), hub = C.hub;
+  h += `<div class="kv" style="margin-bottom:8px"><span>기준 자료</span><span><b>${esc(R.name || '기준 자료')}</b>${R.id ? ` (지점 ${esc(R.id)})` : ''} · ${R.files.length}개 파일 · 열: ${esc(R.cols.t)} / ${esc(R.cols.v)} / ${esc(R.cols.d || '풍향 없음')}</span>
+   <span>기간</span><span>${W.fmtDate(R.t[0], 1)} ~ ${W.fmtDate(R.t[R.t.length - 1], 1)} · ${fi(R.t.length)}개 · 간격 ${f(R.step / 3600000, R.step % 3600000 ? 2 : 0)}시간 · 약 ${f((R.t[R.t.length - 1] - R.t[0]) / 3.15576e10, 1)}년</span></div>
+   <div class="row"><div class="fld"><label>보정 방법</label><select data-mcp="method"><option value="vr" ${o.method !== 'lin' ? 'selected' : ''}>분산비 (권장)</option><option value="lin" ${o.method === 'lin' ? 'selected' : ''}>선형 회귀</option></select></div>
+   <div class="fld"><label>시각 맞춤 (시간)</label><select data-mcp="lag">${[-3, -2, -1, 0, 1, 2, 3].map(L => `<option value="${L}" ${+o.lag === L ? 'selected' : ''}>${L > 0 ? '+' + L : L}</option>`).join('')}</select></div>
+   <div class="fld"><label>장기 기간 시작</label><input type="date" data-mcp="from" value="${o.from || ''}"></div><div class="fld"><label>장기 기간 끝</label><input type="date" data-mcp="to" value="${o.to || ''}"></div>
+   <span class="sp"></span><button class="btn sm" data-act="mcpAdd">파일 더 넣기</button><button class="btn ghost sm" data-act="mcpClear">기준 자료 지우기</button></div><input type="file" id="mcpIn" multiple hidden accept=".csv,.txt,.zip">`;
+  if (!r) return h + '</div>';
+  if (r.err) return h + `<div class="warnbox"><div>${esc(r.err)}</div>${r.best ? `<div>시각을 ${r.best.lag}시간 옮기면 ${fi(r.best.n)}개가 겹칩니다.</div>` : ''}</div></div>`;
+  const st = r.st, chg = 100 * (st.mean / hub.mean - 1), idx = 100 * (r.refLT / r.conc.ref - 1), warn = [];
+  if (r.all.r < 0.7) warn.push(`상관계수가 ${f(r.all.r, 2)}로 낮습니다(0.7 미만). 기준 관측소가 멀거나 지형 영향이 커서 장기 보정의 불확도가 큽니다.`);
+  if (r.best && r.best.lag !== (+o.lag || 0) && r.best.r - r.all.r > 0.01) warn.push(`시각을 ${r.best.lag > 0 ? '+' : ''}${r.best.lag}시간 맞추면 상관이 더 높습니다(r ${f(r.best.r, 3)}). 두 자료의 시간대(UTC·KST)와 시각 기준(구간 시작·끝)을 확인하세요.`);
+  if (r.conc.n * (R.step / 3600000) < 0.8 * 8766) warn.push(`겹친 기간이 1년이 안 됩니다(${fi(r.conc.n)}시간). 계절 편향이 남을 수 있습니다.`);
+  if ((r.ltTo - r.ltFrom) / 3.15576e10 < 5) warn.push('장기 기간이 5년보다 짧습니다. 보통 10년 이상을 씁니다.');
+  h += `<div class="big" style="margin-top:10px"><div><b>${fi(r.conc.n)}</b><span>겹친 시간 (${W.fmtDate(r.conc.from)} ~ ${W.fmtDate(r.conc.to)})</span></div><div><b>${f(r.all.r, 3)}</b><span>상관계수 r</span></div>
+   <div><b>${f(hub.mean, 2)}</b><span>측정 기간 평균 m/s</span></div><div><b>${f(st.mean, 2)}</b><span>장기 보정 평균 m/s</span></div><div><b>${chg >= 0 ? '+' : ''}${f(chg, 1)}%</b><span>측정 기간 대비</span></div>
+   <div><b>${f(st.k, 3)}</b><span>장기 Weibull k</span></div><div><b>${f(st.A, 2)}</b><span>장기 Weibull A</span></div><div><b>${idx >= 0 ? '+' : ''}${f(idx, 1)}%</b><span>기준 자료: 장기 / 겹친 기간</span></div></div>`;
+  h += `<div class="hint">기준 자료의 겹친 기간 평균 ${f(r.conc.ref, 2)} m/s, 장기(${W.fmtDate(r.ltFrom)} ~ ${W.fmtDate(r.ltTo)}) 평균 ${f(r.refLT, 2)} m/s. ${Math.abs(idx) < 1 ? '측정 기간의 바람이 장기 평균과 비슷해서 보정 폭이 작습니다.' : idx > 0 ? '측정 기간의 바람이 장기 평균보다 약했던 편이라 장기값이 측정값보다 높아집니다.' : '측정 기간의 바람이 장기 평균보다 강했던 편이라 장기값이 측정값보다 낮아집니다.'}</div>`;
+  if (warn.length) h += `<div class="warnbox">${warn.map(w => `<div>${esc(w)}</div>`).join('')}</div>`;
+  h += `<details style="margin-top:8px"><summary>방향별 관계식 (측정기 = a + b × 기준)</summary><div class="tw"><table class="t" style="max-width:720px"><tr><th>기준 풍향 °</th><th>겹친 수</th><th>r</th><th>a</th><th>b</th><th>풍향 차이 °</th><th>식</th></tr>${r.sec.map(s => `<tr><td>${s.dir}</td><td>${fi(s.n)}</td><td>${f(s.r, 3)}</td><td>${f(s.a, 3)}</td><td>${f(s.b, 3)}</td><td>${f(s.veer, 1)}</td><td class="txt">${s.own ? '방향별' : '전체 식 (자료 부족)'}</td></tr>`).join('')}<tr class="sum"><td>전체</td><td>${fi(r.all.n)}</td><td>${f(r.all.r, 3)}</td><td>${f(r.all.a, 3)}</td><td>${f(r.all.b, 3)}</td><td></td><td></td></tr></table></div>
+   <div class="hint">시각 맞춤별 상관: ${r.lags.map(x => `${x.lag > 0 ? '+' : ''}${x.lag}h ${f(x.r, 3)}`).join(' · ')}</div></details>`;
+  const yr = new Map(); for (let i = 0; i < R.t.length; i++) { const y = new Date(R.t[i] - 1).getUTCFullYear(); const q = yr.get(y) || { s: 0, n: 0 }; q.s += R.v[i]; q.n++; yr.set(y, q); }
+  const ys = [...yr.entries()].filter(([, q]) => q.n > 0.8 * 8766 * 3600000 / R.step).sort((a, b) => a[0] - b[0]);
+  if (ys.length >= 2) h += `<div class="grid2" style="margin-top:8px">${chartBars(ys.map(([y]) => String(y)), ys.map(([, q]) => q.s / q.n), '기준 자료 연평균풍속 (자료 80% 이상인 해)', '평균풍속 (m/s)', (i, v) => `${ys[i][0]}: ${f(v, 2)} m/s`)}${st.sectors ? chartRose(st.sectors, ui.rose, '장기 보정 풍배도', 'rose') : ''}</div>`;
+  h += `<div class="row" style="margin-top:10px"><button class="btn pri" data-act="mcpDesign">장기 보정 결과를 대표 풍황으로 지정</button><span class="hint">허브 해발 ${f(C.hubZ, 1)} m · 공기밀도·시어는 측정 자료 값을 씁니다.</span></div>`;
+  return h + '</div>';
+}
+async function mcpLoad(D, fileList) {
+  let files; try { files = await expandFiles(fileList); } catch (e) { toast('파일을 열지 못했습니다: ' + e.message); return; }
+  const parts = [], names = [], bad = [];
+  for (const x of files) { if (!/\.(csv|txt|tsv)$/i.test(x.name)) { bad.push(x.name); continue; } const p = W.parseKmaWind(decodeText(x.buf)); if (p) { parts.push(p); names.push(x.name); } else bad.push(x.name); }
+  if (!parts.length) { toast('풍속·일시 열을 찾지 못했습니다. 기상청 시간자료 CSV인지 확인하세요.', 5000); return; }
+  const old = D.mcp && D.mcp.ref; if (old) parts.unshift({ t: Array.from(old.t), v: Array.from(old.v), d: Array.from(old.d) });
+  const m = W.mergeKma(parts); const p0 = parts.find(p => p.cols) || {};
+  const nm = new Set(parts.filter(p => p.name).map(p => p.name));
+  D.mcp = { opt: (D.mcp && D.mcp.opt) || { method: 'vr', lag: 0, from: '', to: '' }, ref: { name: [...nm].join(', ') || (old && old.name) || '', id: p0.id || (old && old.id) || '', cols: (old && old.cols) || p0.cols, files: [...(old ? old.files : []), ...names], ...m } };
+  if (nm.size > 1) toast(`관측소가 ${nm.size}곳 섞여 있습니다: ${[...nm].join(', ')}. 한 관측소 자료만 넣어 주세요.`, 7000);
+  else toast(`기준 자료 ${fi(m.t.length)}개(${W.fmtDate(m.t[0])} ~ ${W.fmtDate(m.t[m.t.length - 1])})를 넣었습니다.${bad.length ? ` 읽지 못한 파일 ${bad.length}개.` : ''}`, 5000);
+  D._mcp = null; busy(() => { render(); save(); });
+}
 /* ---------- 대표 풍황 ---------- */
 function viewDesign(S) {
   const d = S.design;
@@ -2058,7 +2116,7 @@ function viewAep() {
 
 /* ================= 이벤트 ================= */
 document.addEventListener('click', e => {
-  const el = e.target.closest('[data-act]'); if (!el) { if (e.target.closest('#drop')) $('#fileIn').click(); if (e.target.closest('#dropLayout')) $('#layoutIn').click(); if (e.target.closest('#dropZone')) $('#zoneIn').click(); return; }
+  const el = e.target.closest('[data-act]'); if (!el) { if (e.target.closest('#drop')) $('#fileIn').click(); if (e.target.closest('#dropLayout')) $('#layoutIn').click(); if (e.target.closest('#dropZone')) $('#zoneIn').click(); if (e.target.closest('#dropMcp')) $('#mcpIn').click(); return; }
   const a = el.dataset.act, S = site();
   if (a === 'tab') { ui.tab = el.dataset.v; busy(() => { render(); window.scrollTo(0, 0); }); return; }
   if (a === 'fsel') { if (e.target.closest('.x')) return; ui.farmSel = el.dataset.id; busy(render); return; }
@@ -2121,6 +2179,13 @@ document.addEventListener('click', e => {
   else if (a === 'secPaste') pasteDialog(dsSel());
   else if (a === 'secDesign') { const D = dsSel(), T = secTotals(D); const notes = []; if (T.overall) notes.push(`방향별 k·A가 없어 전체 Weibull(k ${D.wk}, A ${D.wA})을 모든 방향에 적용.`); if (!Number.isFinite(W.num(D.rho))) notes.push('공기밀도 입력이 없어 1.225 kg/m³(표준)로 넣었습니다.');
     setDesign({ dsId: D.id, src: `방향별 표: ${D.name}`, z: D.height, mean: T.mean, k: T.k, A: T.A, rho: W.num(D.rho) || rhoDefault, sectorMode: T.overall ? '전체 Weibull 공통' : '방향별 Weibull', sectors: D.rows.filter(r => r.freq > 0).map(r => ({ dir: r.dir, freq: r.freq * 100 / T.fs, k: T.overall ? D.wk : r.k, A: T.overall ? D.wA : r.A })), note: notes.join(' ') }); }
+  else if (a === 'mcpAdd') { $('#mcpIn').click(); return; }
+  else if (a === 'mcpClear') { const D = dsSel(); if (D) { delete D.mcp; D._mcp = null; render(); save(); } return; }
+  else if (a === 'mcpDesign') { const D = dsSel(), C = tsCompute(D), r = mcpCompute(D, C); if (!r || r.err) return; const st = r.st, R = D.mcp.ref;
+    setDesign({ dsId: D.id, src: `장기 보정(MCP): ${D.name} + ${R.name || '기준 자료'} (${W.fmtDate(r.ltFrom).slice(0, 4)}~${W.fmtDate(r.ltTo).slice(0, 4)})`, z: C.hubZ, mean: st.mean, k: st.k, A: st.A, rho: C.rho ? C.rho.rhoHub : rhoDefault, alpha: C.sh ? C.sh.alpha : NaN,
+      sectors: st.sectors ? st.sectors.map(s => ({ dir: s.dir, freq: s.freq, k: Number.isFinite(s.k) ? s.k : st.k, A: Number.isFinite(s.A) ? s.A : st.A })) : null, hist: st.secHist || null,
+      mcp: { ref: R.name, id: R.id, r: r.all.r, n: r.conc.n, method: D.mcp.opt.method, ltFrom: r.ltFrom, ltTo: r.ltTo, measMean: C.hub.mean, ltMean: st.mean },
+      note: `측정 ${W.fmtDate(r.conc.from)} ~ ${W.fmtDate(r.conc.to)}을 ${R.name || '기준 자료'}로 장기 보정(${D.mcp.opt.method === 'lin' ? '선형 회귀' : '분산비'}, r ${f(r.all.r, 3)}). 측정 기간 평균 ${f(C.hub.mean, 2)} → 장기 ${f(st.mean, 2)} m/s.` }); }
   else if (a === 'tsDesign') { const D = dsSel(), C = tsCompute(D), hb = C.hub; setDesign({ dsId: D.id, src: `시계열: ${D.name} (${W.fmtDate(D.ser.ts[0])} ~ ${W.fmtDate(D.ser.ts[D.ser.ts.length - 1])})`, z: C.hubZ, mean: hb.mean, k: hb.k, A: hb.A, rho: C.rho ? C.rho.rhoHub : rhoDefault, alpha: C.sh ? C.sh.alpha : NaN, sectors: hb.sectors ? hb.sectors.map(s => ({ dir: s.dir, freq: s.freq, k: Number.isFinite(s.k) ? s.k : hb.k, A: Number.isFinite(s.A) ? s.A : hb.A })) : null, hist: hb.secHist || null, note: [hb.n < 52000 ? '1년 미만 측정 자료 — 장기 보정 전 값입니다.' : '', hb.sectors && hb.sectors.some(s => !Number.isFinite(s.k)) ? '자료가 적은 방향은 전체 Weibull로 채웠습니다.' : ''].filter(Boolean).join(' ') }); }
   else if (a === 'wgDesign') {
     const D = dsSel(), r = D.reports[D.sel ?? D.reports.length - 1], elev = +S.elev || 0;
@@ -2141,6 +2206,8 @@ document.addEventListener('change', e => {
   if (el.id === 'fcmpHub') { ui.fcmpHub = el.value; render(); return; }
   if (el.id === 'tpreset') { const src = W.TURB_PRESETS.find(t => t.id === el.value); if (!src) return; const ex = P.turbines.find(t => t.preset === src.id); if (ex) { ui.turbSel = ex.id; render(); toast(`"${ex.name}"은(는) 이미 목록에 있습니다.`); return; } const T = JSON.parse(JSON.stringify(src)); T.preset = src.id; T.id = uid(); P.turbines.push(T); ui.turbSel = T.id; render(); save(); toast(`"${T.name}"을(를) 터빈 목록에 넣었습니다.`); return; }
   if (el.id === 'fileOpen') { openProject(el.files[0]); el.value = ''; return; }
+  if (el.id === 'mcpIn') { const D = dsSel(); if (D) mcpLoad(D, [...el.files]); el.value = ''; return; }
+  if (el.dataset.mcp) { const D = dsSel(); if (D && D.mcp) { const k = el.dataset.mcp; D.mcp.opt[k] = k === 'lag' ? +el.value : el.value; busy(() => { render(); save(); }); } return; }
   if (el.id === 'layoutIn' || el.id === 'zoneIn') { handleLayoutFiles([...el.files]); el.value = ''; return; }
   if (el.dataset.farm) { const F = farmSel(), k = el.dataset.farm; if (k === 'model') { F.wake.model = el.value; F.wake.k = WAKE_MODELS[el.value].k; if (!F.wake.ti) F.wake.ti = 0.06; } else if (k === 'k') F.wake.k = W.num(el.value) || WAKE_MODELS[F.wake.model].k; else if (k === 'ti') F.wake.ti = W.num(el.value) || 0.06; else if (k === 'zone') F.zone = W.num(el.value) || 52; else if (k === 'hub') F.hub = el.value.trim() === '' ? undefined : W.num(el.value); else if (k === 'tid' || k === 'zoneId') { F[k] = el.value || undefined; if (k === 'tid') { F.noFit = false; F._fit = true; ui.fcmp = null; } } else if (k === 'permitMW' || k === 'gridMW') { F[k] = W.num(el.value) > 0 ? W.num(el.value) : undefined; ui.fcmp = null; if (k === 'permitMW') { F.noFit = false; F._fit = true; } } else if (k === 'permitMode') { F.permitMode = el.value; ui.fcmp = null; } else F[k] = el.value; F._cache = null; ui.rp = null; busy(() => { if (F._fit) { delete F._fit; farmFitPermit(F); } render(); save(); }); return; }
   if (el.dataset.sp) { const F = farmSel(), k = el.dataset.sp; F.spRule[k] = k === 'dir' ? (el.value.trim() === '' || /auto/i.test(el.value) ? 'auto' : W.num(el.value)) : (W.num(el.value) || F.spRule[k]); F._cache = null; busy(() => { render(); save(); }); return; }
@@ -2194,9 +2261,9 @@ document.addEventListener('mousedown', e => {
 });
 document.addEventListener('mousemove', e => { if (!layDrag) return; const [px, py] = svgPt(layDrag.svg, e); layDrag.el.setAttribute('cx', px); layDrag.el.setAttribute('cy', py); if (layDrag.txt) { layDrag.txt.setAttribute('x', px + 9); layDrag.txt.setAttribute('y', py + 3); } layDrag.p = [px, py]; });
 document.addEventListener('mouseup', () => { if (!layDrag) return; const d = layDrag; layDrag = null; if (!d.p) return; const F = farmSel(); const [x, y] = ui.layM.inv(d.p[0], d.p[1]); F.rows[d.i].x = Math.round(x); F.rows[d.i].y = Math.round(y); F._cache = null; busy(() => { render(); save(); }); });
-document.addEventListener('dragover', e => { e.preventDefault(); const d = $('#drop') || $('#dropLayout') || $('#dropZone'); if (d) d.classList.add('over'); });
+document.addEventListener('dragover', e => { e.preventDefault(); const d = (e.target.closest && e.target.closest('#dropMcp')) || $('#drop') || $('#dropLayout') || $('#dropZone'); if (d) d.classList.add('over'); });
 document.addEventListener('dragleave', e => { if (!e.relatedTarget) { const d = $('#drop'); if (d) d.classList.remove('over'); } });
-document.addEventListener('drop', e => { e.preventDefault(); document.querySelectorAll('.drop').forEach(d => d.classList.remove('over')); const fl = [...e.dataTransfer.files]; if (!fl.length) return; if (ui.tab === 'farm' || ui.tab === 'zone') handleLayoutFiles(fl); else if (ui.tab === 'turb') importTurbinePdf(fl.filter(x => /\.pdf$/i.test(x.name))); else if (ui.tab === 'wind') handleFiles(fl); });
+document.addEventListener('drop', e => { e.preventDefault(); document.querySelectorAll('.drop').forEach(d => d.classList.remove('over')); const fl = [...e.dataTransfer.files]; if (!fl.length) return; if (ui.tab === 'farm' || ui.tab === 'zone') handleLayoutFiles(fl); else if (ui.tab === 'turb') importTurbinePdf(fl.filter(x => /\.pdf$/i.test(x.name))); else if (ui.tab === 'wind') { if (e.target.closest && e.target.closest('#dropMcp')) { const D = dsSel(); if (D) mcpLoad(D, fl); } else handleFiles(fl); } });
 $('#btnOpen').onclick = () => $('#fileOpen').click();
 $('#btnSave').onclick = () => saveProjectFile();
 $('#btnSnap').onclick = () => snapDialog();
@@ -2207,11 +2274,11 @@ $('#btnXlsx').onclick = () => exportXlsx();
 const b64 = buf => { const u = new Uint8Array(buf); let s = ''; for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s); };
 const unb64 = (s, T) => { const bin = atob(s); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return new T(u.buffer); };
 function serialize() {
-  return JSON.stringify({ app: 'wind-energy-tool', v: 1, P: { ...P, farms: (P.farms || []).map(F => ({ ...F, _cache: undefined })), sites: P.sites.map(s => ({ ...s, datasets: s.datasets.map(d => d.type !== 'ts' ? d : ({ ...d, cache: undefined, raw: undefined, qcRes: undefined, ser: { ...d.ser, ts: b64(d.ser.ts.buffer), data: d.ser.data.map(a => b64(a.buffer)) } })) })) } });
+  return JSON.stringify({ app: 'wind-energy-tool', v: 1, P: { ...P, farms: (P.farms || []).map(F => ({ ...F, _cache: undefined })), sites: P.sites.map(s => ({ ...s, datasets: s.datasets.map(d => d.type !== 'ts' ? d : ({ ...d, cache: undefined, raw: undefined, qcRes: undefined, _mcp: undefined, mcp: d.mcp && d.mcp.ref ? { ...d.mcp, ref: { ...d.mcp.ref, t: b64(Float64Array.from(d.mcp.ref.t).buffer), v: b64(Float32Array.from(d.mcp.ref.v).buffer), d: b64(Float32Array.from(d.mcp.ref.d).buffer) } } : d.mcp, ser: { ...d.ser, ts: b64(d.ser.ts.buffer), data: d.ser.data.map(a => b64(a.buffer)) } })) })) } });
 }
 function deserialize(txt) {
   const o = JSON.parse(txt); if (o.app !== 'wind-energy-tool') throw new Error('이 도구의 프로젝트 파일이 아닙니다.');
-  const p = o.P; p.sites.forEach(s => s.datasets.forEach(d => { if (d.type === 'ts') { d.ser.ts = unb64(d.ser.ts, Float64Array); d.ser.data = d.ser.data.map(x => unb64(x, Float32Array)); d.cache = null; } }));
+  const p = o.P; p.sites.forEach(s => s.datasets.forEach(d => { if (d.type === 'ts') { d.ser.ts = unb64(d.ser.ts, Float64Array); d.ser.data = d.ser.data.map(x => unb64(x, Float32Array)); d.cache = null; if (d.mcp && d.mcp.ref && typeof d.mcp.ref.t === 'string') { d.mcp.ref.t = unb64(d.mcp.ref.t, Float64Array); d.mcp.ref.v = unb64(d.mcp.ref.v, Float32Array); d.mcp.ref.d = unb64(d.mcp.ref.d, Float32Array); } } }));
   const fix = x => { if (x === null) return NaN; return x; }; // JSON NaN→null
   p.sites.forEach(s => s.datasets.forEach(d => { if (d.type === 'sec') d.rows.forEach(r => { for (const k in r) r[k] = fix(r[k]); }); }));
   (p.turbines || []).forEach(t => { t.curve = t.curve.map(c => c.map(fix)); for (const k of ['ratedKW', 'rotor', 'hub', 'rhoRef']) t[k] = fix(t[k]); });

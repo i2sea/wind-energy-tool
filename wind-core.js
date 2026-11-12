@@ -959,6 +959,73 @@ W.findLtInfo = function (pages) {
   return out;
 };
 
+/* ===== 장기 보정 (MCP): 기상청 장기 자료 ===== */
+// 기상자료개방포털 CSV(종관 ASOS·방재 AWS·해양기상부이 시간자료 등)에서 일시·풍속·풍향을 읽는다.
+const DIR16 = { N: 0, NNE: 22.5, NE: 45, ENE: 67.5, E: 90, ESE: 112.5, SE: 135, SSE: 157.5, S: 180, SSW: 202.5, SW: 225, WSW: 247.5, W: 270, WNW: 292.5, NW: 315, NNW: 337.5,
+  '북': 0, '북북동': 22.5, '북동': 45, '동북동': 67.5, '동': 90, '동남동': 112.5, '남동': 135, '남남동': 157.5, '남': 180, '남남서': 202.5, '남서': 225, '서남서': 247.5, '서': 270, '서북서': 292.5, '북서': 315, '북북서': 337.5 };
+W.parseKmaWind = function (text) {
+  const lines = text.replace(/^﻿/, '').split(/\r?\n/).filter(l => l.trim());
+  const split = l => (l.includes('\t') ? l.split('\t') : l.split(',')).map(s => s.trim().replace(/^"|"$/g, ''));
+  let hi = -1, H = null;
+  for (let i = 0; i < Math.min(lines.length, 30); i++) { const c = split(lines[i]); if (c.some(x => /풍속|wind.?speed|^ws$/i.test(x)) && c.some(x => /일시|일자|시각|날짜|date|time|^tm$/i.test(x))) { hi = i; H = c; break; } }
+  if (!H) return null;
+  const bad = /qc|플래그|flag|최대|순간|gust|최다|max|시각\(|발생/i;
+  const tI = H.findIndex(x => /^(일시|관측\s*시각|관측일시|일자|날짜|tm|date.?time|date|time)$/i.test(x.replace(/\(.*\)/, '').trim())) >= 0 ? H.findIndex(x => /^(일시|관측\s*시각|관측일시|일자|날짜|tm|date.?time|date|time)$/i.test(x.replace(/\(.*\)/, '').trim())) : H.findIndex(x => /일시|시각|date|time/i.test(x) && !bad.test(x));
+  const vI = (() => { let k = H.findIndex(x => /평균\s*풍속/.test(x) && !bad.test(x)); if (k < 0) k = H.findIndex(x => /풍속|wind.?speed|^ws$/i.test(x) && !bad.test(x)); return k; })();
+  const dI = (() => { let k = H.findIndex(x => /^풍향/.test(x) && !bad.test(x)); if (k < 0) k = H.findIndex(x => /풍향|wind.?dir|^wd$/i.test(x) && !bad.test(x)); return k; })();
+  const idI = H.findIndex(x => /^지점$|^지점번호$|^stn/i.test(x)), nmI = H.findIndex(x => /지점명|관측소|stn.?nm/i.test(x));
+  if (tI < 0 || vI < 0) return null;
+  const t = [], v = [], d = []; let name = '', id = '';
+  for (let i = hi + 1; i < lines.length; i++) {
+    const c = split(lines[i]); if (c.length <= Math.max(tI, vI)) continue;
+    const tt = W.parseDate(c[tI].length === 13 && /^\d{4}-\d\d-\d\d \d\d$/.test(c[tI]) ? c[tI] + ':00' : /^\d{12}$/.test(c[tI]) ? c[tI].replace(/^(\d{4})(\d\d)(\d\d)(\d\d)(\d\d)$/, '$1-$2-$3 $4:$5') : c[tI]);
+    if (!Number.isFinite(tt)) continue;
+    const vv = parseFloat(c[vI]); if (!(vv >= 0 && vv < 75)) continue;
+    let dd = NaN; if (dI >= 0) { const s = c[dI]; dd = /^-?\d+(\.\d+)?$/.test(s) ? +s : (DIR16[s.toUpperCase()] ?? DIR16[s] ?? NaN); if (!(dd >= 0 && dd <= 360)) dd = NaN; }
+    t.push(tt); v.push(vv); d.push(dd);
+    if (!name && nmI >= 0) name = c[nmI]; if (!id && idI >= 0) id = c[idI];
+  }
+  if (t.length < 10) return null;
+  return { name, id, t, v, d, cols: { t: H[tI], v: H[vI], d: dI >= 0 ? H[dI] : '' } };
+};
+// 여러 파일을 합치고(같은 시각은 하나만) 시각 순으로 정렬
+W.mergeKma = function (parts) {
+  const m = new Map(); for (const p of parts) for (let i = 0; i < p.t.length; i++) m.set(p.t[i], [p.v[i], p.d[i]]);
+  const t = [...m.keys()].sort((a, b) => a - b);
+  const steps = []; for (let i = 1; i < Math.min(t.length, 2000); i++) steps.push(t[i] - t[i - 1]); steps.sort((a, b) => a - b);
+  return { t: Float64Array.from(t), v: Float32Array.from(t.map(x => m.get(x)[0])), d: Float32Array.from(t.map(x => m.get(x)[1])), step: steps.length ? steps[steps.length >> 1] : 3600000 };
+};
+const circMean = arr => { let s = 0, c = 0; for (const a of arr) { s += Math.sin(a * Math.PI / 180); c += Math.cos(a * Math.PI / 180); } return Math.atan2(s, c) * 180 / Math.PI; };
+// mast: {ts, ws, dir} (구간 끝 시각, 10분 등) · ref: {t, v, d, step} · opt: {nSec, method:'vr'|'lin', lag(시간), from, to(장기 기간, ms)}
+W.mcp = function (mast, ref, opt = {}) {
+  const HR = ref.step || 3600000, nSec = opt.nSec || 12, sw = 360 / nSec, lag = Math.round(opt.lag || 0);
+  // 측정기 자료를 기준 자료 간격(보통 1시간)으로 평균 — 구간 (t-간격, t]
+  const mh = new Map(); const per = Math.max(1, Math.round(HR / (mast.step || 600000)));
+  for (let i = 0; i < mast.ts.length; i++) { const v = mast.ws[i]; if (!(v >= 0)) continue; const k = Math.ceil(mast.ts[i] / HR - 1e-9); let o = mh.get(k); if (!o) { o = { s: 0, n: 0, sx: 0, sy: 0, nd: 0 }; mh.set(k, o); } o.s += v; o.n++; const d = mast.dir ? mast.dir[i] : NaN; if (d >= 0 && d <= 360) { o.sx += Math.sin(d * Math.PI / 180); o.sy += Math.cos(d * Math.PI / 180); o.nd++; } }
+  const minN = Math.max(1, Math.ceil(per / 2));
+  const mAt = k => { const o = mh.get(k); if (!o || o.n < minN) return null; return { v: o.s / o.n, d: o.nd ? (Math.atan2(o.sx, o.sy) * 180 / Math.PI + 360) % 360 : NaN }; };
+  const rk = Array.from(ref.t, x => Math.round(x / HR));
+  const pairsAt = L => { const P = []; for (let i = 0; i < rk.length; i++) { const m = mAt(rk[i] + L); if (m) P.push([ref.v[i], m.v, ref.d[i], m.d]); } return P; };
+  const corr = P => { const n = P.length; if (n < 10) return { n, r: NaN }; let sx = 0, sy = 0, sxx = 0, syy = 0, sxy = 0; for (const [x, y] of P) { sx += x; sy += y; sxx += x * x; syy += y * y; sxy += x * y; } const cov = sxy / n - sx * sy / n / n, vx = sxx / n - (sx / n) ** 2, vy = syy / n - (sy / n) ** 2; return { n, r: cov / Math.sqrt(vx * vy), mx: sx / n, my: sy / n, sx: Math.sqrt(vx), sy: Math.sqrt(vy), cov }; };
+  const lags = []; for (let L = -3; L <= 3; L++) lags.push({ lag: L, ...corr(pairsAt(L)) });
+  const best = lags.filter(x => Number.isFinite(x.r)).sort((a, b) => b.r - a.r)[0];
+  const P = pairsAt(lag); const all = corr(P);
+  if (P.length < 200) return { err: `겹치는 시간이 ${P.length}개뿐입니다. 측정 기간과 기준 자료 기간이 겹치는지, 시각 기준(KST)이 같은지 확인하세요.`, lags, best, nPairs: P.length };
+  const fit = c => opt.method === 'lin' ? { b: c.cov / (c.sx * c.sx), a: c.my - c.cov / (c.sx * c.sx) * c.mx } : { b: c.sy / c.sx, a: c.my - c.sy / c.sx * c.mx };
+  const g = fit(all);
+  const secOf = (v, d) => v > 0.3 && d >= 0 && d <= 360 ? Math.floor(((d + sw / 2) % 360) / sw) : -1;
+  const sec = Array.from({ length: nSec }, (_, s) => { const Q = P.filter(p => secOf(p[0], p[2]) === s); const c = corr(Q); const ok = Q.length >= 50 && c.sx > 0; const ft = ok ? fit(c) : g;
+    const vr = Q.filter(p => p[1] > 2 && p[3] >= 0).map(p => ((p[3] - p[2] + 540) % 360) - 180); const veer = vr.length >= 20 ? circMean(vr) : 0;
+    return { dir: s * sw, n: Q.length, r: c.r, a: ft.a, b: ft.b, own: ok, veer, mx: c.mx, my: c.my }; });
+  // 장기 기간 (기본: 기준 자료 전체)
+  const t0 = opt.from || -Infinity, t1 = opt.to || Infinity;
+  const lt = { ts: [], ws: [], dir: [] }; let rs = 0, rn = 0;
+  for (let i = 0; i < ref.t.length; i++) { const tt = ref.t[i]; if (tt < t0 || tt > t1) continue; const v = ref.v[i], d = ref.d[i], s = secOf(v, d), q = s >= 0 ? sec[s] : null; const ft = q || g;
+    lt.ts.push(tt + lag * HR); lt.ws.push(Math.max(0, ft.a + ft.b * v)); lt.dir.push(q && d >= 0 ? ((d + q.veer) % 360 + 360) % 360 : NaN); rs += v; rn++; }
+  const conc = { ref: all.mx, mast: all.my, n: P.length, from: ref.t[rk.findIndex(k => mAt(k + lag))], to: ref.t[rk.length - 1 - [...rk].reverse().findIndex(k => mAt(k + lag))] };
+  return { lags, best, all: { ...all, ...g }, sec, conc, refLT: rn ? rs / rn : NaN, ltN: rn, lt: { ts: Float64Array.from(lt.ts), ws: Float32Array.from(lt.ws), dir: Float32Array.from(lt.dir), step: HR }, ltFrom: lt.ts[0], ltTo: lt.ts[lt.ts.length - 1] };
+};
+
 G.WindCore = W;
 if (typeof module !== 'undefined') module.exports = W;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
