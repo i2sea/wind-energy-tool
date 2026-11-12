@@ -665,13 +665,24 @@ function pasteDialog(D) {
 }
 
 /* ---------- 장기 보정 (MCP) ---------- */
+// 장기 기간 자동: 기준 자료 끝에서 거슬러 꽉 찬 해(12개월 배수)만큼 — 계절 비중이 고르게
+function mcpAutoLT(R) {
+  const n = R.t.length; if (n < 2) return null; const tol = R.step || 3600000;
+  const a = new Date(R.t[0] - tol), b = new Date(R.t[n - 1] + 1);
+  let y0 = a.getUTCFullYear(), m0 = a.getUTCMonth() + (a.getUTCDate() > 1 || a.getUTCHours() > 0 ? 1 : 0); // 처음 꽉 찬 달
+  let y1 = b.getUTCFullYear(), m1 = b.getUTCMonth() - (b.getUTCDate() > 1 || b.getUTCHours() > 0 ? 0 : 1); // 마지막 꽉 찬 달(포함)
+  if (b.getUTCDate() === 1 && b.getUTCHours() === 0) { } else { const last = new Date(Date.UTC(y1, m1 + 1, 1)); if (R.t[n - 1] + tol < last.getTime()) m1--; }
+  const months = (y1 * 12 + m1) - (y0 * 12 + m0) + 1; const yrs = Math.floor(months / 12); if (yrs < 1) return null;
+  const e = y1 * 12 + m1, st = e - yrs * 12 + 1;
+  return { from: Date.UTC(Math.floor(st / 12), st % 12, 1), to: Date.UTC(Math.floor((e + 1) / 12), (e + 1) % 12, 1), yrs };
+}
 function mcpCompute(D, C) {
   const M = D.mcp; if (!M || !M.ref) return null; const o = M.opt || (M.opt = { method: 'vr', lag: 0, from: '', to: '' });
   const key = JSON.stringify([C.key, D.qcRes && D.qcRes.key, M.ref.t.length, o]);
   if (D._mcp && D._mcp.key === key) return D._mcp.res;
   const S = site(), elev = +S.elev || 0, ser = { ...D.ser, data: D.qcRes.data };
   const hs = W.hubSeries(ser, C.hubZ - elev, C.opt);
-  const res = W.mcp({ ts: ser.ts, ws: hs.ws, dir: hs.dir, step: ser.step }, M.ref, { nSec: C.opt.nSec, method: o.method, lag: +o.lag || 0, from: o.from ? W.parseDate(o.from + ' 00:00') : null, to: o.to ? W.parseDate(o.to + ' 23:59') : null });
+  const res = W.mcp({ ts: ser.ts, ws: hs.ws, dir: hs.dir, step: ser.step }, M.ref, { nSec: C.opt.nSec, method: o.method, lag: +o.lag || 0, ...(() => { if (o.from || o.to) return { from: o.from ? W.parseDate(o.from + ' 00:00') + 1 : null, to: o.to ? W.parseDate(o.to + ' 00:00') + 86400000 : null }; const au = mcpAutoLT(M.ref); return au ? { from: au.from + 1, to: au.to } : {}; })() });
   if (!res.err) res.st = W.statsFor({ ts: res.lt.ts, step: res.lt.step, columns: [] }, { ws: res.lt.ws, dir: res.lt.dir }, { nSec: C.opt.nSec, weibull: C.opt.weibull, dirOffset: C.opt.dirOffset });
   D._mcp = { key, res }; return res;
 }
@@ -688,6 +699,7 @@ function mcpCard(D, C) {
    <div class="fld"><label>시각 맞춤 (시간)</label><select data-mcp="lag">${[-3, -2, -1, 0, 1, 2, 3].map(L => `<option value="${L}" ${+o.lag === L ? 'selected' : ''}>${L > 0 ? '+' + L : L}</option>`).join('')}</select></div>
    <div class="fld"><label>장기 기간 시작</label><input type="date" data-mcp="from" value="${o.from || ''}"></div><div class="fld"><label>장기 기간 끝</label><input type="date" data-mcp="to" value="${o.to || ''}"></div>
    <span class="sp"></span><button class="btn sm" data-act="mcpAdd">파일 더 넣기</button><button class="btn ghost sm" data-act="mcpClear">기준 자료 지우기</button></div><input type="file" id="mcpIn" multiple hidden accept=".csv,.txt,.zip">`;
+  { const au = mcpAutoLT(R); h += `<div class="hint">${o.from || o.to ? '장기 기간을 직접 넣었습니다. 비우면 꽉 찬 해로 자동으로 맞춥니다.' : au ? `장기 기간 자동: ${W.fmtDate(au.from)} ~ ${W.fmtDate(au.to - 1)} (꽉 찬 ${au.yrs}년 — 기준 자료 끝에서 거슬러 해 단위로 맞춰 계절 비중을 고르게 함)` : '기준 자료가 1년이 안 돼 전체를 씁니다.'}</div>`; }
   if (!r) return h + '</div>';
   if (r.err) return h + `<div class="warnbox"><div>${esc(r.err)}</div>${r.best ? `<div>시각을 ${r.best.lag}시간 옮기면 ${fi(r.best.n)}개가 겹칩니다.</div>` : ''}</div></div>`;
   const st = r.st, chg = 100 * (st.mean / hub.mean - 1), idx = 100 * (r.refLT / r.conc.ref - 1), warn = [];
@@ -698,7 +710,7 @@ function mcpCard(D, C) {
   h += `<div class="big" style="margin-top:10px"><div><b>${fi(r.conc.n)}</b><span>겹친 시간 (${W.fmtDate(r.conc.from)} ~ ${W.fmtDate(r.conc.to)})</span></div><div><b>${f(r.all.r, 3)}</b><span>상관계수 r</span></div>
    <div><b>${f(hub.mean, 2)}</b><span>측정 기간 평균 m/s</span></div><div><b>${f(st.mean, 2)}</b><span>장기 보정 평균 m/s</span></div><div><b>${chg >= 0 ? '+' : ''}${f(chg, 1)}%</b><span>측정 기간 대비</span></div>
    <div><b>${f(st.k, 3)}</b><span>장기 Weibull k</span></div><div><b>${f(st.A, 2)}</b><span>장기 Weibull A</span></div><div><b>${idx >= 0 ? '+' : ''}${f(idx, 1)}%</b><span>기준 자료: 장기 / 겹친 기간</span></div></div>`;
-  h += `<div class="hint">기준 자료의 겹친 기간 평균 ${f(r.conc.ref, 2)} m/s, 장기(${W.fmtDate(r.ltFrom)} ~ ${W.fmtDate(r.ltTo)}) 평균 ${f(r.refLT, 2)} m/s. ${Math.abs(idx) < 1 ? '측정 기간의 바람이 장기 평균과 비슷해서 보정 폭이 작습니다.' : idx > 0 ? '측정 기간의 바람이 장기 평균보다 약했던 편이라 장기값이 측정값보다 높아집니다.' : '측정 기간의 바람이 장기 평균보다 강했던 편이라 장기값이 측정값보다 낮아집니다.'}</div>`;
+  h += `<div class="hint">기준 자료의 겹친 기간 평균 ${f(r.conc.ref, 2)} m/s, 장기(${W.fmtDate(r.ltFrom - 1)} ~ ${W.fmtDate(r.ltTo - 1)}) 평균 ${f(r.refLT, 2)} m/s. ${Math.abs(idx) < 1 ? '측정 기간의 바람이 장기 평균과 비슷해서 보정 폭이 작습니다.' : idx > 0 ? '측정 기간의 바람이 장기 평균보다 약했던 편이라 장기값이 측정값보다 높아집니다.' : '측정 기간의 바람이 장기 평균보다 강했던 편이라 장기값이 측정값보다 낮아집니다.'}</div>`;
   if (warn.length) h += `<div class="warnbox">${warn.map(w => `<div>${esc(w)}</div>`).join('')}</div>`;
   h += `<details style="margin-top:8px"><summary>방향별 관계식 (측정기 = a + b × 기준)</summary><div class="tw"><table class="t" style="max-width:720px"><tr><th>기준 풍향 °</th><th>겹친 수</th><th>r</th><th>a</th><th>b</th><th>풍향 차이 °</th><th>식</th></tr>${r.sec.map(s => `<tr><td>${s.dir}</td><td>${fi(s.n)}</td><td>${f(s.r, 3)}</td><td>${f(s.a, 3)}</td><td>${f(s.b, 3)}</td><td>${f(s.veer, 1)}</td><td class="txt">${s.own ? '방향별' : '전체 식 (자료 부족)'}</td></tr>`).join('')}<tr class="sum"><td>전체</td><td>${fi(r.all.n)}</td><td>${f(r.all.r, 3)}</td><td>${f(r.all.a, 3)}</td><td>${f(r.all.b, 3)}</td><td></td><td></td></tr></table></div>
    <div class="hint">시각 맞춤별 상관: ${r.lags.map(x => `${x.lag > 0 ? '+' : ''}${x.lag}h ${f(x.r, 3)}`).join(' · ')}</div></details>`;
@@ -2182,7 +2194,7 @@ document.addEventListener('click', e => {
   else if (a === 'mcpAdd') { $('#mcpIn').click(); return; }
   else if (a === 'mcpClear') { const D = dsSel(); if (D) { delete D.mcp; D._mcp = null; render(); save(); } return; }
   else if (a === 'mcpDesign') { const D = dsSel(), C = tsCompute(D), r = mcpCompute(D, C); if (!r || r.err) return; const st = r.st, R = D.mcp.ref;
-    setDesign({ dsId: D.id, src: `장기 보정(MCP): ${D.name} + ${R.name || '기준 자료'} (${W.fmtDate(r.ltFrom).slice(0, 4)}~${W.fmtDate(r.ltTo).slice(0, 4)})`, z: C.hubZ, mean: st.mean, k: st.k, A: st.A, rho: C.rho ? C.rho.rhoHub : rhoDefault, alpha: C.sh ? C.sh.alpha : NaN,
+    setDesign({ dsId: D.id, src: `장기 보정(MCP): ${D.name} + ${R.name || '기준 자료'} (${W.fmtDate(r.ltFrom - 1).slice(0, 4)}~${W.fmtDate(r.ltTo - 1).slice(0, 4)})`, z: C.hubZ, mean: st.mean, k: st.k, A: st.A, rho: C.rho ? C.rho.rhoHub : rhoDefault, alpha: C.sh ? C.sh.alpha : NaN,
       sectors: st.sectors ? st.sectors.map(s => ({ dir: s.dir, freq: s.freq, k: Number.isFinite(s.k) ? s.k : st.k, A: Number.isFinite(s.A) ? s.A : st.A })) : null, hist: st.secHist || null,
       mcp: { ref: R.name, id: R.id, r: r.all.r, n: r.conc.n, method: D.mcp.opt.method, ltFrom: r.ltFrom, ltTo: r.ltTo, measMean: C.hub.mean, ltMean: st.mean },
       note: `측정 ${W.fmtDate(r.conc.from)} ~ ${W.fmtDate(r.conc.to)}을 ${R.name || '기준 자료'}로 장기 보정(${D.mcp.opt.method === 'lin' ? '선형 회귀' : '분산비'}, r ${f(r.all.r, 3)}). 측정 기간 평균 ${f(C.hub.mean, 2)} → 장기 ${f(st.mean, 2)} m/s.` }); }
