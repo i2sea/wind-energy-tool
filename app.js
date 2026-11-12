@@ -665,6 +665,31 @@ function pasteDialog(D) {
 }
 
 /* ---------- 장기 보정 (MCP) ---------- */
+// 기상청 해양기상부이·등표 위치 — 기상청 날씨누리 '기상부이 위치' 표(공개). 지점번호는 확인된 것만
+const KMA_BUOYS = [['덕적도',37.23611,126.01889,'22101'],['외연도',36.25,125.75,'22108'],['인천',37.09167,125.42889,'22185'],['서해170',36.13333,124.05694,''],['풍도',37.15833,126.41,''],['내파수도',36.45139,126.24,''],['연평도',37.61944,125.64833,''],['서해143',37.5,124.01667,''],['서해151',37.04972,124.61667,''],['서해163',36.75,125.60806,''],['칠발도',34.79333,125.77694,'22102'],['부안',35.65861,125.81389,'22186'],['서해206',34.0,123.2625,''],['가거도',34.0275,125.21472,''],['홍도',34.74667,125.24556,''],['서해190',35.0,124.13333,''],['위도동부',35.64306,126.35861,''],['자은',34.91917,125.86806,''],['신안',34.73333,126.24167,'22183'],['대치마도',35.0175,126.03194,''],['서해192',35.28306,125.15056,''],['마라도',33.08333,126.03333,'22107'],['서귀포',33.12806,127.02278,'22187'],['남해239',32.83333,124.73333,''],['남해465',31.66667,126.4,''],['남해244',32.72222,127.27222,''],['구엄',33.52083,126.37472,''],['위미',33.22369,126.71119,''],['신창',33.36686,126.10889,''],['거문도',34.00139,127.50139,'22103'],['추자도',33.79361,126.14111,'22184'],['거제도',34.76667,128.9,'22104'],['통영',34.39167,128.225,'22188'],['남해111',33.775,128.375,''],['소매물도',34.62111,128.53806,''],['지심도',34.82778,128.775,''],['이수도',34.97167,128.75833,''],['포항',36.35,129.78333,'22106'],['울산',35.34528,129.84139,'22189'],['울진',36.90694,129.87444,'22190'],['동해78',36.96667,130.51667,''],['죽변',37.10278,129.45944,''],['울릉도',37.45556,131.11444,'21229'],['동해',37.48056,129.95,'22105'],['동해57',38.36667,129.6,''],['고성',38.31722,128.63917,''],['삼척',37.46389,129.31806,''],['강릉',37.79833,129.06083,'']].map(([name, lat, lon, no]) => ({ name, lat, lon, no, kind: 'buoy' }));
+const KMA_LIGHTS = [['서수도',37.325,126.39333],['가대암',36.77,125.97667],['십이동파도',35.98667,126.225],['갈매여',35.61333,126.245],['해수서',34.26333,126.02667],['지귀도',33.22333,126.65417],['오륙도',35.09111,129.12639],['간여암',34.285,127.85778],['이덕서',35.56667,129.475]].map(([name, lat, lon]) => ({ name, lat, lon, no: '', kind: 'light' }));
+const MARINE_DASH = 'https://i2sea.github.io/marine-weather-dashboard/';
+// 장기 보정용 기준 관측소 추천: 해양기상부이 우선, 그다음 등표·해안 종관(ASOS)
+function mcpStations(S) {
+  const c = siteCoord(S); if (!c) return [];
+  const all = [...KMA_BUOYS, ...KMA_LIGHTS, ...KMA_STATIONS.filter(s => s.kind !== 'inland').map(s => ({ name: s.name, lat: s.lat, lon: s.lon, no: String(s.no), kind: 'asos', sub: KIND_KO[s.kind] }))];
+  const A = all.map(s => ({ ...s, dist: havKm(c.lat, c.lon, s.lat, s.lon) })).sort((a, b) => a.dist - b.dist);
+  // 지점번호가 있는 부이 = 오래 운영한 주력 부이(10년 이상 자료가 있을 가능성 높음) → 가까운 두 곳을 추천
+  let best = A.filter(s => s.kind === 'buoy' && s.no && s.dist < 100).slice(0, 2); if (!best.length) best = A.filter(s => s.dist < 60).slice(0, 1);
+  best.forEach(s => s.best = true);
+  const L = A.filter(s => s.dist < 100).slice(0, 8); best.forEach(s => { if (!L.includes(s)) L.push(s); });
+  return L.sort((a, b) => a.dist - b.dist);
+}
+function mcpPeriod(D) { const ts = D.ser.ts, now = new Date(); const t1 = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0)); const y0 = Math.min(new Date(ts[0]).getUTCFullYear(), t1.getUTCFullYear() - 9);
+  return { from: `${y0}-01-01`, to: W.fmtDate(t1.getTime()), m0: W.fmtDate(ts[0]), m1: W.fmtDate(ts[ts.length - 1] - 1) }; }
+function mcpGuide(D, open) {
+  const S = site(), L = mcpStations(S), pd = mcpPeriod(D); const KO = { buoy: '해양기상부이', light: '등표', asos: '종관(ASOS)' };
+  const how = `<ol style="margin:6px 0 0 18px;padding:0;font-size:12px;line-height:1.7"><li><a href="${MARINE_DASH}" target="_blank" rel="noopener">해양 바람·파랑 관측 대시보드</a>를 열고 지도에서 추천 지점을 누릅니다. (종관 ASOS는 기상자료개방포털 data.kma.go.kr → 종관기상관측 → 시간자료)</li><li>자료 내려받기 기간을 <b>${pd.from} ~ ${pd.to}</b>로 넣고 CSV를 내려받습니다. 측정 기간(${pd.m0} ~ ${pd.m1})이 들어가고 장기 10년 이상이 되는 기간입니다.</li><li>받은 CSV를 이 칸에 넣습니다.</li></ol>`;
+  const tbl = L.length ? `<div class="tw" style="margin-top:6px"><table class="t" style="max-width:640px"><tr><th></th><th>지점</th><th>종류</th><th>지점번호</th><th>거리 km</th><th>받는 곳</th></tr>${L.map(s => `<tr${s.best ? ' class="hub"' : ''}><td>${s.best ? '★ 추천' : ''}</td><td class="txt">${esc(s.name)}</td><td class="txt">${KO[s.kind]}${s.sub ? ' · ' + s.sub : ''}</td><td>${esc(s.no || '-')}</td><td>${f(s.dist, 1)}</td><td class="txt">${s.kind === 'asos' ? '기상자료개방포털' : '대시보드'}</td></tr>`).join('')}</table></div>
+   <div class="hint">★ 추천은 오래 운영한 해양기상부이 중 가까운 두 곳입니다. 바다 위 부이가 보통 측정기와 상관이 가장 좋고, 등표·해안 관측소는 섬·지형 영향을 받습니다. 두 곳을 차례로 넣어 상관계수 r이 높은 쪽을 쓰세요. 지점번호가 없는 부이는 최근에 생겨 10년 자료가 없을 수 있습니다.</div>` : '<div class="hint">1 풍황자료 지점에 위도·경도를 넣으면 가까운 관측소를 거리순으로 보여 줍니다.</div>';
+  return `<details ${open ? 'open' : ''} style="margin-top:8px"><summary>어느 관측소 자료를 받을까</summary>${tbl}${how}</details>`;
+}
+
 // 장기 기간 자동: 기준 자료 끝에서 거슬러 꽉 찬 해(12개월 배수)만큼 — 계절 비중이 고르게
 function mcpAutoLT(R) {
   const n = R.t.length; if (n < 2) return null; const tol = R.step || 3600000;
@@ -689,16 +714,16 @@ function mcpCompute(D, C) {
 function mcpCard(D, C) {
   const M = D.mcp;
   let h = `<div class="card" id="mcpCard"><h2>장기 보정 (MCP) <span class="sub">기상청 등 장기 기준 자료로 측정 기간 풍황을 장기값으로 보정</span></h2>`;
-  if (!M || !M.ref) return h + `<div class="drop" id="dropMcp"><b>기상청 장기 자료를 끌어다 놓거나 눌러서 고르세요</b><br><span class="hint">기상자료개방포털(data.kma.go.kr) → 기상관측 → 종관기상관측(ASOS)·방재기상관측(AWS)·해양기상부이 → <b>시간자료</b> CSV. 여러 해 파일을 한꺼번에 넣어도 되고 zip도 됩니다. 풍속·풍향·일시 열만 읽습니다.</span></div>
+  if (!M || !M.ref) return h + `<div class="drop" id="dropMcp"><b>기상청 장기 자료를 끌어다 놓거나 눌러서 고르세요</b><br><span class="hint">해양 바람·파랑 관측 대시보드에서 받은 CSV, 또는 기상자료개방포털(data.kma.go.kr)의 종관(ASOS)·방재(AWS)·해양기상부이 <b>시간자료</b> CSV. 여러 해 파일을 한꺼번에 넣어도 되고 zip도 됩니다. 풍속·풍향·일시 열만 읽습니다.</span></div>
    <input type="file" id="mcpIn" multiple hidden accept=".csv,.txt,.zip">
-   <div class="hint" style="margin-top:6px">측정기 자료와 기준 자료가 겹치는 시간으로 방향별 관계식을 구하고, 기준 자료 전체 기간(예: 10년)에 적용해 측정기 허브높이의 장기 풍황을 만듭니다. 두 자료의 시각은 같은 기준(보통 KST)이어야 합니다.</div></div>`;
+   <div class="hint" style="margin-top:6px">측정기 자료와 기준 자료가 겹치는 시간으로 방향별 관계식을 구하고, 기준 자료 전체 기간(예: 10년)에 적용해 측정기 허브높이의 장기 풍황을 만듭니다. 두 자료의 시각은 같은 기준(보통 KST)이어야 합니다.</div>${mcpGuide(D, true)}</div>`;
   const R = M.ref, o = M.opt, r = mcpCompute(D, C), hub = C.hub;
   h += `<div class="kv" style="margin-bottom:8px"><span>기준 자료</span><span><b>${esc(R.name || '기준 자료')}</b>${R.id ? ` (지점 ${esc(R.id)})` : ''} · ${R.files.length}개 파일 · 열: ${esc(R.cols.t)} / ${esc(R.cols.v)} / ${esc(R.cols.d || '풍향 없음')}</span>
    <span>기간</span><span>${W.fmtDate(R.t[0], 1)} ~ ${W.fmtDate(R.t[R.t.length - 1], 1)} · ${fi(R.t.length)}개 · 간격 ${f(R.step / 3600000, R.step % 3600000 ? 2 : 0)}시간 · 약 ${f((R.t[R.t.length - 1] - R.t[0]) / 3.15576e10, 1)}년</span></div>
    <div class="row"><div class="fld"><label>보정 방법</label><select data-mcp="method"><option value="vr" ${o.method !== 'lin' ? 'selected' : ''}>분산비 (권장)</option><option value="lin" ${o.method === 'lin' ? 'selected' : ''}>선형 회귀</option></select></div>
    <div class="fld"><label>시각 맞춤 (시간)</label><select data-mcp="lag">${[-3, -2, -1, 0, 1, 2, 3].map(L => `<option value="${L}" ${+o.lag === L ? 'selected' : ''}>${L > 0 ? '+' + L : L}</option>`).join('')}</select></div>
    <div class="fld"><label>장기 기간 시작</label><input type="date" data-mcp="from" value="${o.from || ''}"></div><div class="fld"><label>장기 기간 끝</label><input type="date" data-mcp="to" value="${o.to || ''}"></div>
-   <span class="sp"></span><button class="btn sm" data-act="mcpAdd">파일 더 넣기</button><button class="btn ghost sm" data-act="mcpClear">기준 자료 지우기</button></div><input type="file" id="mcpIn" multiple hidden accept=".csv,.txt,.zip">`;
+   <span class="sp"></span><button class="btn sm" data-act="mcpAdd">파일 더 넣기</button><button class="btn ghost sm" data-act="mcpClear">기준 자료 지우기</button></div><input type="file" id="mcpIn" multiple hidden accept=".csv,.txt,.zip">${mcpGuide(D, false)}`;
   { const au = mcpAutoLT(R); h += `<div class="hint">${o.from || o.to ? '장기 기간을 직접 넣었습니다. 비우면 꽉 찬 해로 자동으로 맞춥니다.' : au ? `장기 기간 자동: ${W.fmtDate(au.from)} ~ ${W.fmtDate(au.to - 1)} (꽉 찬 ${au.yrs}년 — 기준 자료 끝에서 거슬러 해 단위로 맞춰 계절 비중을 고르게 함)` : '기준 자료가 1년이 안 돼 전체를 씁니다.'}</div>`; }
   if (!r) return h + '</div>';
   if (r.err) return h + `<div class="warnbox"><div>${esc(r.err)}</div>${r.best ? `<div>시각을 ${r.best.lag}시간 옮기면 ${fi(r.best.n)}개가 겹칩니다.</div>` : ''}</div></div>`;
