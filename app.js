@@ -711,6 +711,13 @@ function mcpAutoLT(R) {
   const e = y1 * 12 + m1, st = e - yrs * 12 + 1;
   return { from: Date.UTC(Math.floor(st / 12), st % 12, 1), to: Date.UTC(Math.floor((e + 1) / 12), (e + 1) % 12, 1), yrs };
 }
+function mcpEvidence(D, C, r) { const R = D.mcp.ref, st = r.st;
+  return { ref: R.name, id: R.id, r: r.all.r, n: r.conc.n, method: D.mcp.opt.method, lag: +D.mcp.opt.lag || 0, ltFrom: r.ltFrom, ltTo: r.ltTo, measMean: C.hub.mean, ltMean: st.mean, hubZ: C.hubZ, files: R.files.slice(0, 20), cols: R.cols, step: R.step,
+        concFrom: r.conc.from, concTo: r.conc.to, concRef: r.conc.ref, concMast: r.conc.mast, refLT: r.refLT, a: r.all.a, b: r.all.b, k: st.k, A: st.A,
+        sec: r.sec.map(q => ({ dir: q.dir, n: q.n, r: q.r, a: q.a, b: q.b, veer: q.veer, own: q.own })), lags: r.lags.map(x => ({ lag: x.lag, r: x.r, n: x.n })), sample: r.sample.filter((_, i) => i % 2 === 0),
+        years: (() => { const yr = new Map(); for (let i = 0; i < R.t.length; i++) { const y = new Date(R.t[i] - 1).getUTCFullYear(); const q = yr.get(y) || { s: 0, n: 0 }; q.s += R.v[i]; q.n++; yr.set(y, q); } return [...yr.entries()].sort((a, b) => a[0] - b[0]).map(([y, q]) => ({ y, mean: q.s / q.n, cov: q.n / (8766 * 3600000 / R.step) })); })(),
+        dist: (() => { const c = siteCoord(site()), st0 = [...KMA_BUOYS, ...KMA_LIGHTS, ...KMA_STATIONS.map(x => ({ ...x, no: String(x.no) }))].find(x => (R.id && x.no === String(R.id)) || x.name === R.name); return c && st0 ? havKm(c.lat, c.lon, st0.lat, st0.lon) : NaN; })() };
+}
 function mcpCompute(D, C) {
   const M = D.mcp; if (!M || !M.ref) return null; const o = M.opt || (M.opt = { method: 'vr', lag: 0, from: '', to: '' });
   const key = JSON.stringify([C.key, D.qcRes && D.qcRes.key, M.ref.t.length, o]);
@@ -2024,6 +2031,7 @@ function measInfo(F) {
 const measDates = mi => mi ? (Number.isFinite(mi.from) && Number.isFinite(mi.to) ? `${kDate(mi.from)}부터 ${kDate(mi.to)}까지` : `약 ${f(mi.months, 1)}개월`) : '';
 const measText = mi => mi ? (Number.isFinite(mi.from) && Number.isFinite(mi.to) ? `${kDate(mi.from)}부터 ${kDate(mi.to)}까지 (약 ${f(mi.months, 1)}개월)` : `약 ${f(mi.months, 1)}개월`) : '';
 function ltInfo(F) { if (F.lt) return { ...F.lt, src: F.ltSrc || '보고서' }; const S = P.sites.find(s => s.id === F.siteId);
+  if (S && S.design && S.design.mcp && !S.design.mcp.sec) { try { const D = S.datasets.find(x => x.id === S.design.dsId); if (D && D.mcp && D.mcp.ref && D.ser) { const C = tsCompute(D), r = mcpCompute(D, C); if (r && !r.err) S.design.mcp = mcpEvidence(D, C, r); } } catch (e) { console.warn('mcp evidence', e); } }
   if (S && S.design && S.design.mcp) { const m = S.design.mcp, y0 = new Date(m.ltFrom - 1).getUTCFullYear(), y1 = new Date(m.ltTo - 1).getUTCFullYear(); return { years: (m.ltTo - m.ltFrom) / 3.15576e10, yearsText: `${W.fmtDate(m.ltFrom - 1)} ~ ${W.fmtDate(m.ltTo - 1)}`, r: +m.r.toFixed(3), refType: 'station', src: `장기 보정(MCP) · ${m.ref || '기준 자료'}`, mcp: m }; } const d = S && S.datasets.find(x => x.lt); return d ? { ...d.lt, src: SRCNAME(d.source || d.name) } : {}; }
 // 측정기가 해안(등대·섬·육상)에 있는지: 보고서 문장 → 지점 이름·메모 → 설치 표고(해발 3 m 넘으면 육상 설치로 봄)
 function coastalMast(F, lt) {
@@ -2233,11 +2241,7 @@ document.addEventListener('click', e => {
   else if (a === 'mcpDesign') { const D = dsSel(), C = tsCompute(D), r = mcpCompute(D, C); if (!r || r.err) return; const st = r.st, R = D.mcp.ref;
     setDesign({ dsId: D.id, src: `장기 보정(MCP): ${D.name} + ${R.name || '기준 자료'} (${W.fmtDate(r.ltFrom - 1).slice(0, 4)}~${W.fmtDate(r.ltTo - 1).slice(0, 4)})`, z: C.hubZ, mean: st.mean, k: st.k, A: st.A, rho: C.rho ? C.rho.rhoHub : rhoDefault, alpha: C.sh ? C.sh.alpha : NaN,
       sectors: st.sectors ? st.sectors.map(s => ({ dir: s.dir, freq: s.freq, k: Number.isFinite(s.k) ? s.k : st.k, A: Number.isFinite(s.A) ? s.A : st.A })) : null, hist: st.secHist || null,
-      mcp: { ref: R.name, id: R.id, r: r.all.r, n: r.conc.n, method: D.mcp.opt.method, lag: +D.mcp.opt.lag || 0, ltFrom: r.ltFrom, ltTo: r.ltTo, measMean: C.hub.mean, ltMean: st.mean, hubZ: C.hubZ, files: R.files.slice(0, 20), cols: R.cols, step: R.step,
-        concFrom: r.conc.from, concTo: r.conc.to, concRef: r.conc.ref, concMast: r.conc.mast, refLT: r.refLT, a: r.all.a, b: r.all.b, k: st.k, A: st.A,
-        sec: r.sec.map(q => ({ dir: q.dir, n: q.n, r: q.r, a: q.a, b: q.b, veer: q.veer, own: q.own })), lags: r.lags.map(x => ({ lag: x.lag, r: x.r, n: x.n })), sample: r.sample.filter((_, i) => i % 2 === 0),
-        years: (() => { const yr = new Map(); for (let i = 0; i < R.t.length; i++) { const y = new Date(R.t[i] - 1).getUTCFullYear(); const q = yr.get(y) || { s: 0, n: 0 }; q.s += R.v[i]; q.n++; yr.set(y, q); } return [...yr.entries()].sort((a, b) => a[0] - b[0]).map(([y, q]) => ({ y, mean: q.s / q.n, cov: q.n / (8766 * 3600000 / R.step) })); })(),
-        dist: (() => { const c = siteCoord(site()), st0 = [...KMA_BUOYS, ...KMA_LIGHTS, ...KMA_STATIONS.map(x => ({ ...x, no: String(x.no) }))].find(x => (R.id && x.no === String(R.id)) || x.name === R.name); return c && st0 ? havKm(c.lat, c.lon, st0.lat, st0.lon) : NaN; })() },
+      mcp: mcpEvidence(D, C, r),
       note: `측정 ${W.fmtDate(r.conc.from)} ~ ${W.fmtDate(r.conc.to - 1)}을 ${R.name || '기준 자료'}로 장기 보정(${D.mcp.opt.method === 'lin' ? '선형 회귀' : '분산비'}, r ${f(r.all.r, 3)}). 측정 기간 평균 ${f(C.hub.mean, 2)} → 장기 ${f(st.mean, 2)} m/s.` }); }
   else if (a === 'tsDesign') { const D = dsSel(), C = tsCompute(D), hb = C.hub; setDesign({ dsId: D.id, src: `시계열: ${D.name} (${W.fmtDate(D.ser.ts[0])} ~ ${W.fmtDate(D.ser.ts[D.ser.ts.length - 1])})`, z: C.hubZ, mean: hb.mean, k: hb.k, A: hb.A, rho: C.rho ? C.rho.rhoHub : rhoDefault, alpha: C.sh ? C.sh.alpha : NaN, sectors: hb.sectors ? hb.sectors.map(s => ({ dir: s.dir, freq: s.freq, k: Number.isFinite(s.k) ? s.k : hb.k, A: Number.isFinite(s.A) ? s.A : hb.A })) : null, hist: hb.secHist || null, note: [hb.n < 52000 ? '1년 미만 측정 자료 — 장기 보정 전 값입니다.' : '', hb.sectors && hb.sectors.some(s => !Number.isFinite(s.k)) ? '자료가 적은 방향은 전체 Weibull로 채웠습니다.' : ''].filter(Boolean).join(' ') }); }
   else if (a === 'wgDesign') {
@@ -2629,12 +2633,14 @@ async function reportModel(F) {
   h2('장기 참조 자료');
   p(lt.years ? `장기 보정에는 ${lt.refType === 'reanalysis' ? '재분석 자료' : lt.refType === 'station' ? '인근 관측소 자료' : '장기 참조 자료'} ${f(lt.years, 1)}년 (${lt.yearsText || ''})을 사용하였다${Number.isFinite(lt.r) ? `. 측정 자료와 장기 참조 자료의 상관계수는 r = ${f(lt.r, 3)}로, ${lt.r >= 0.9 ? '매우 좋음' : lt.r >= 0.8 ? '좋음' : lt.r >= 0.7 ? '보통' : '나쁨'} 수준이다` : ''} (${sref(lt.src, '장기 보정')}).` : '장기 참조 자료 정보가 없다. 1년 미만 측정 자료이면 장기 보정이 필요하다.');
   table({ caption: '상관계수에 따른 장기 참조 자료 품질', title: '상관계수에 따른 품질 판정', widths: [1.4, 1, 1, 1, 1, 1], head: [['상관계수', '0.5 - 0.6', '0.6 - 0.7', '0.7 - 0.8', '0.8 - 0.9', '0.9 - 1.0']], rows: [['품질', '매우 나쁨', '나쁨', '보통', '좋음', '매우 좋음']], align: ['C', 'C', 'C', 'C', 'C', 'C'] });
-  if (lt.mcp) { const m = lt.mcp, mt = m.method === 'lin' ? '선형 회귀' : '분산비(variance ratio)', idx = 100 * (m.refLT / m.concRef - 1), chg = 100 * (m.ltMean / m.measMean - 1);
+  if (lt.mcp && !lt.mcp.sec) p('장기 보정 계산 근거(방향별 식·그래프)가 저장되어 있지 않다. 1 풍황자료 탭 장기 보정 칸에서 기준 자료를 넣고 "장기 보정 결과를 대표 풍황으로 지정"을 다시 누르면 이 절에 들어간다.');
+  if (lt.mcp && lt.mcp.sec) { const m = lt.mcp, mt = m.method === 'lin' ? '선형 회귀' : '분산비(variance ratio)', idx = 100 * (m.refLT / m.concRef - 1), chg = 100 * (m.ltMean / m.measMean - 1);
     h3('장기 보정 방법');
     p(`측정기 허브높이(해발 ${f(m.hubZ, 1)} m) 풍속을 기준 자료 간격(${f(m.step / 3600000, m.step % 3600000 ? 2 : 0)}시간)으로 평균하여 기준 자료와 같은 시각끼리 짝지었다${m.lag ? ` (기준 자료 시각을 ${m.lag > 0 ? '+' : ''}${m.lag}시간 옮김)` : ''}. 기준 자료 풍향으로 ${m.sec.length}개 방향 구간을 나누고, 구간마다 ${mt} 방법으로 측정기 풍속 = a + b × 기준 풍속의 관계식과 두 자료의 풍향 차이를 구하였다. 겹친 자료가 50개 미만인 구간은 전체 식을 썼다. 이 관계식을 기준 자료의 장기 기간 전체에 적용하여 측정기 허브높이의 장기 시계열을 만들고, 그 시계열로 Weibull 분포와 방향별 분포를 다시 구하였다.`);
     table({ caption: '장기 보정 기준 자료', title: '기준 자료', widths: [1.6, 3.2], frac: 0.85, label: true, rows: [['관측소', `${m.ref || '-'}${m.id ? ` (지점 ${m.id})` : ''}`], ['측정기까지 거리', Number.isFinite(m.dist) ? `약 ${f(m.dist, 1)} km` : '-'], ['자료 간격', `${f(m.step / 3600000, m.step % 3600000 ? 2 : 0)}시간`], ['사용 열', `${m.cols ? [m.cols.t, m.cols.v, m.cols.d].filter(Boolean).join(', ') : '-'}`], ['파일', `${(m.files || []).length}개${m.files && m.files.length ? ` (${m.files.slice(0, 3).join(', ')}${m.files.length > 3 ? ' 등' : ''})` : ''}`], ['겹친 기간', `${W.fmtDate(m.concFrom)} ~ ${W.fmtDate(m.concTo - 1)} · ${fi(m.n)}개`], ['장기 기간', `${W.fmtDate(m.ltFrom - 1)} ~ ${W.fmtDate(m.ltTo - 1)} (${f((m.ltTo - m.ltFrom) / 3.15576e10, 1)}년)`]] });
     h3('겹친 기간 상관');
     p(`겹친 ${fi(m.n)}개 시간의 상관계수는 r = ${f(m.r, 3)}이고, 전체 식은 측정기 = ${f(m.a, 3)} + ${f(m.b, 3)} × 기준 풍속이다. 시각을 −3 ~ +3시간 옮겨 본 상관계수는 ${m.lags.map(x => `${x.lag > 0 ? '+' : ''}${x.lag}h ${f(x.r, 3)}`).join(', ')}로, ${(() => { const b = m.lags.slice().sort((x, y) => y.r - x.r)[0]; return b && b.lag === (m.lag || 0) ? '사용한 시각 맞춤에서 가장 높다' : `+${b.lag}시간에서 가장 높다`; })()}.`);
+    if (m.lags && m.lags.length) await fig(chartLines(m.lags.map(x => x.lag), [{ name: '상관계수 r', y: m.lags.map(x => x.r), c: '#2a78d6' }], '', '시각 맞춤 (시간)', 'r', { d: 3 }), '시각 맞춤별 상관계수', 0.55);
     if (m.sample && m.sample.length) await fig(chartScatter(m.sample, m.a, m.b, '', `기준 풍속 ${m.ref || ''} (m/s)`, '측정기 허브높이 풍속 (m/s)'), '겹친 기간 풍속 비교와 전체 관계식', 0.6);
     table({ caption: '방향별 장기 보정 관계식', title: '방향별 관계식', widths: [1, 1, 0.9, 0.9, 0.9, 1, 1.2], head: [['기준 풍향 (°)', '겹친 수', 'r', 'a', 'b', '풍향 차이 (°)', '사용 식']], rows: [...m.sec.map(q => [q.dir, fi(q.n), f(q.r, 3), f(q.a, 3), f(q.b, 3), f(q.veer, 1), q.own ? '방향별' : '전체 식']), { cells: ['전체', fi(m.n), f(m.r, 3), f(m.a, 3), f(m.b, 3), '', ''], strong: true }], align: ['C', 'R', 'R', 'R', 'R', 'R', 'C'] });
     h3('장기 보정 결과');
