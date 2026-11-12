@@ -1344,15 +1344,34 @@ function viewZone() {
    <div class="row"><div class="fld"><label>UTM 구역 (위도·경도 변환)</label><input class="n" data-zone="zone" value="${Z.zone || 52}" style="width:60px"></div><div class="fld" style="flex:1"><label>메모</label><input data-zone="note" value="${esc(Z.note || '')}" style="width:100%"></div></div>
    <div class="grid2" style="margin-top:10px;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr)">${chartZone(Z)}<div>
    <h3 style="font-size:13px;margin:0 0 6px">사업 구역 경계 <button class="btn sm" data-act="zpaste" data-v="bound">붙여넣기</button></h3>
-   ${Z.bounds.length ? `<table class="t"><tr><th>이름</th><th>꼭짓점</th><th>면적 km²</th><th>출처</th><th></th></tr>${Z.bounds.map(b => `<tr><td class="txt"><input data-zb="${b.id}" data-k="name" value="${esc(b.name)}" style="width:150px;text-align:left"></td><td>${b.pts.length}</td><td>${f(W.polyArea(b.pts) / 1e6, 2)}</td><td class="txt"><span class="srcl" style="max-width:150px" title="${esc(b.src)}">${esc(b.src)}</span></td><td><span class="btn ghost sm" data-act="zidel" data-t="bounds" data-id="${b.id}">×</span></td></tr>`).join('')}</table>` : '<div class="hint">없음 — 해역이용 허가 구역 좌표 등을 넣어 주세요.</div>'}
+   ${Z.bounds.length ? `<table class="t"><tr><th>이름</th><th>꼭짓점</th><th>면적 km²</th><th>출처</th><th></th></tr>${Z.bounds.map(b => `<tr><td class="txt"><input data-zb="${b.id}" data-k="name" value="${esc(b.name)}" style="width:150px;text-align:left"></td><td>${b.pts.length}</td><td>${f(W.polyArea(b.pts) / 1e6, 2)}</td><td class="txt"><span class="srcl" style="max-width:150px" title="${esc(b.src)}">${esc(b.src)}</span></td><td style="white-space:nowrap"><span class="btn sm" data-act="zcoord" data-t="bounds" data-id="${b.id}">좌표 보기</span> <span class="btn ghost sm" data-act="zidel" data-t="bounds" data-id="${b.id}">×</span></td></tr>`).join('')}</table>` : '<div class="hint">없음 — 해역이용 허가 구역 좌표 등을 넣어 주세요.</div>'}
    <h3 style="font-size:13px;margin:14px 0 6px">제외 구역 <button class="btn sm" data-act="zpaste" data-v="excl">붙여넣기</button></h3>
-   ${Z.excl.length ? `<table class="t"><tr><th>이름</th><th>종류</th><th>모양</th><th>이격 m</th><th></th></tr>${Z.excl.map(e => `<tr><td class="txt"><input data-ze="${e.id}" data-k="name" value="${esc(e.name)}" style="width:120px;text-align:left"></td><td><select data-ze="${e.id}" data-k="kind">${EXCL_KINDS.map(k => `<option ${e.kind === k ? 'selected' : ''}>${k}</option>`).join('')}</select></td><td><select data-ze="${e.id}" data-k="shape"><option value="poly" ${e.shape !== 'line' ? 'selected' : ''}>면</option><option value="line" ${e.shape === 'line' ? 'selected' : ''}>선</option></select></td><td><input data-ze="${e.id}" data-k="buffer" value="${e.buffer || 0}"></td><td><span class="btn ghost sm" data-act="zidel" data-t="excl" data-id="${e.id}">×</span></td></tr>`).join('')}</table>` : '<div class="hint">없음 — 항로, 해저케이블, 군 작전구역, 어업 구역 등을 넣어 주세요. 선(케이블 중심선)은 이격 거리로 폭을 줍니다.</div>'}
+   ${Z.excl.length ? `<table class="t"><tr><th>이름</th><th>종류</th><th>모양</th><th>이격 m</th><th></th></tr>${Z.excl.map(e => `<tr><td class="txt"><input data-ze="${e.id}" data-k="name" value="${esc(e.name)}" style="width:120px;text-align:left"></td><td><select data-ze="${e.id}" data-k="kind">${EXCL_KINDS.map(k => `<option ${e.kind === k ? 'selected' : ''}>${k}</option>`).join('')}</select></td><td><select data-ze="${e.id}" data-k="shape"><option value="poly" ${e.shape !== 'line' ? 'selected' : ''}>면</option><option value="line" ${e.shape === 'line' ? 'selected' : ''}>선</option></select></td><td><input data-ze="${e.id}" data-k="buffer" value="${e.buffer || 0}"></td><td style="white-space:nowrap"><span class="btn sm" data-act="zcoord" data-t="excl" data-id="${e.id}">좌표 보기</span> <span class="btn ghost sm" data-act="zidel" data-t="excl" data-id="${e.id}">×</span></td></tr>`).join('')}</table>` : '<div class="hint">없음 — 항로, 해저케이블, 군 작전구역, 어업 구역 등을 넣어 주세요. 선(케이블 중심선)은 이격 거리로 폭을 줍니다.</div>'}
    <h3 style="font-size:13px;margin:14px 0 6px">풍속 기준점 <button class="btn sm" data-act="zpaste" data-v="pts">붙여넣기</button></h3>
    ${(Z.pts || []).length ? `<table class="t"><tr><th>이름</th><th>E</th><th>N</th><th>풍속 m/s</th><th>높이 m</th><th></th></tr>${Z.pts.map(p => `<tr><td class="txt">${esc(p.name)}</td><td>${fi(p.x)}</td><td>${fi(p.y)}</td><td><input data-zp="${p.id}" data-k="v" value="${p.v}"></td><td><input data-zp="${p.id}" data-k="z" value="${Number.isFinite(p.z) ? p.z : ''}" placeholder="비어 있음"></td><td><span class="btn ghost sm" data-act="zidel" data-t="pts" data-id="${p.id}">×</span></td></tr>`).join('')}</table><div class="hint">4단계 "터빈별 풍속 → 구역 풍속 기준점"을 고르면 터빈마다 거리 비례(역거리 제곱)로 풍속을 나눠 줍니다. 높이가 비어 있으면 허브높이 값으로 봅니다.</div>` : '<div class="hint">없음 — 구역 꼭짓점 장기 풍속(K2M 보고서 Table 2-2 등)이 있으면 넣어 주세요.</div>'}
    </div></div></div>`;
   return h;
 }
 // ===== 단지 계산 =====
+// 구역 경계·제외 구역 꼭짓점 좌표 보기: UTM(E·N)과 위도·경도(십진·도분초), 복사(엑셀에 붙여넣기)·CSV 내려받기
+const dmsTxt = (v, pos, neg) => { const a = Math.abs(v), d = Math.floor(a), mf = (a - d) * 60, m = Math.floor(mf), sec = (mf - m) * 60; return `${d}° ${String(m).padStart(2, '0')}′ ${sec.toFixed(2).padStart(5, '0')}″ ${v >= 0 ? pos : neg}`; };
+function zoneCoordDialog(Z, item) {
+  const zone = Z.zone || 52, rows = item.pts.map((q, i) => { const ll = W.utmToLatLon(q[0], q[1], zone, true); return [i + 1, q[0], q[1], ll.lat, ll.lon]; });
+  const head = ['번호', 'E (m)', 'N (m)', '위도', '경도', '위도 (도분초)', '경도 (도분초)'];
+  const line = r => [r[0], r[1].toFixed(2), r[2].toFixed(2), r[3].toFixed(7), r[4].toFixed(7), dmsTxt(r[3], 'N', 'S'), dmsTxt(r[4], 'E', 'W')];
+  const tsv = [head, ...rows.map(line)].map(a => a.join('\t')).join('\r\n');
+  const box = document.createElement('div'); box.className = 'modal'; document.body.appendChild(box);
+  box.innerHTML = `<div class="box" style="width:min(860px,96vw)"><h3>${esc(item.name || '구역')} 꼭짓점 좌표 <span class="sub">${esc(Z.name)} · UTM ${zone}N (WGS84) · ${rows.length}점${item.shape === 'line' ? ' · 선' : ` · 면적 ${f(W.polyArea(item.pts) / 1e6, 3)} km²`}</span></h3>
+   <div class="tw" style="max-height:60vh"><table class="t"><tr>${head.map(h => `<th>${h}</th>`).join('')}</tr>${rows.map(r => `<tr>${line(r).map((v, k) => `<td${k >= 5 ? ' class="txt"' : ''}>${v}</td>`).join('')}</tr>`).join('')}</table></div>
+   <div class="hint" style="margin-top:6px">위도·경도는 UTM 좌표를 WGS84로 바꾼 값입니다. "복사"를 누르고 엑셀에 붙여넣으면 칸이 나뉘어 들어갑니다.</div>
+   <div class="row" style="justify-content:flex-end;gap:6px;margin-top:10px"><button class="btn" data-x="copy">복사 (엑셀용)</button><button class="btn" data-x="csv">CSV 내려받기</button><button class="btn pri" data-x="c">닫기</button></div></div>`;
+  box.addEventListener('click', async e => {
+    const x = e.target.dataset.x; if (!x) { if (e.target === box) box.remove(); return; }
+    if (x === 'c') box.remove();
+    if (x === 'copy') { try { await navigator.clipboard.writeText(tsv); toast('좌표를 복사했습니다. 엑셀에 붙여넣으세요.'); } catch (er) { toast('복사하지 못했습니다. CSV 내려받기를 쓰세요.'); } }
+    if (x === 'csv') download(`${safeNm(Z.name)}_${safeNm(item.name || '구역')}_좌표.csv`, new Blob(['﻿' + tsv.replace(/\t/g, ',')], { type: 'text/csv' }));
+  });
+}
 function idwSpeed(pts, x, y) { let a = 0, b = 0; for (const p of pts) { const d = Math.hypot(p.x - x, p.y - y); if (d < 1) return p.v; const w = 1 / (d * d); a += w * p.v; b += w; } return a / b; }
 function spacingCheck(F, R) {
   const rule = F.spRule || { main: 7, cross: 4, dir: 'auto' }; const c = R.c;
@@ -2011,6 +2030,7 @@ document.addEventListener('click', e => {
   if (a === 'tdel') { const T = turbOf(el.dataset.id); confirmBox(`"${T.name}" 터빈을 삭제할까요?`, () => { P.turbines = P.turbines.filter(t => t.id !== T.id); P.sites.forEach(s => { if (s.turb && s.turb.tid === T.id) s.turb.tid = null; }); ui.turbSel = null; render(); save(); }); return; }
   if (a === 'tpdf') { $('#turbPdf').click(); return; }
   if (a === 'tnew') { const T = { id: uid(), name: `새 터빈 ${P.turbines.length + 1}`, maker: '', model: '', ratedKW: NaN, rotor: NaN, hub: NaN, rhoRef: 1.225, regulation: 'pitch', source: '직접 입력', curve: [] }; P.turbines.push(T); ui.turbSel = T.id; render(); save(); curvePasteDialog(T); return; }
+  if (a === 'zcoord') { const Z = zoneSel(); const it = Z && (el.dataset.t === 'bounds' ? Z.bounds : Z.excl).find(q => q.id === el.dataset.id); if (it) zoneCoordDialog(Z, it); return; }
   if (a === 'tfImp') { $('#turbJson').click(); return; }
   if (a === 'tfExp') { const T = turbOf(ui.turbSel); download(`터빈_${safeNm(T.name)}.json`, new Blob([turbFileText([T])], { type: 'application/json' })); return; }
   if (a === 'tfExpAll') { download(`터빈목록_${new Date().toISOString().slice(0, 10)}.json`, new Blob([turbFileText(P.turbines)], { type: 'application/json' })); return; }
