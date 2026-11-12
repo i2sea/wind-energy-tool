@@ -745,6 +745,7 @@ function mcpCard(D, C) {
   if (!r) return h + '</div>';
   if (r.err) return h + `<div class="warnbox"><div>${esc(r.err)}</div>${r.best ? `<div>시각을 ${r.best.lag}시간 옮기면 ${fi(r.best.n)}개가 겹칩니다.</div>` : ''}</div></div>`;
   const st = r.st, chg = 100 * (st.mean / hub.mean - 1), idx = 100 * (r.refLT / r.conc.ref - 1), warn = [];
+  if (R.name && R.name.includes(',')) warn.push(`기준 자료에 관측소가 섞여 있습니다(${R.name}). 같은 시각 값이 서로 덮어써져 결과를 믿을 수 없습니다. "기준 자료 지우기" 후 한 관측소 파일만 넣어 주세요.`);
   if (r.all.r < 0.7) warn.push(`상관계수가 ${f(r.all.r, 2)}로 낮습니다(0.7 미만). 기준 관측소가 멀거나 지형 영향이 커서 장기 보정의 불확도가 큽니다.`);
   if (r.best && r.best.lag !== (+o.lag || 0) && r.best.r - r.all.r > 0.01) warn.push(`시각을 ${r.best.lag > 0 ? '+' : ''}${r.best.lag}시간 맞추면 상관이 더 높습니다(r ${f(r.best.r, 3)}). 두 자료의 시간대(UTC·KST)와 시각 기준(구간 시작·끝)을 확인하세요.`);
   if (r.conc.n * (R.step / 3600000) < 0.8 * 8766) warn.push(`겹친 기간이 1년이 안 됩니다(${fi(r.conc.n)}시간). 계절 편향이 남을 수 있습니다.`);
@@ -760,6 +761,7 @@ function mcpCard(D, C) {
   const ys = [...yr.entries()].filter(([, q]) => q.n > 0.8 * 8766 * 3600000 / R.step).sort((a, b) => a[0] - b[0]);
   h += `<div class="grid2" style="margin-top:8px">${chartScatter(r.sample, r.all.a, r.all.b, '겹친 시간 풍속 비교', `기준 자료 ${R.name || ''} (m/s)`, '측정기 허브높이 (m/s)')}${chartLines(r.lags.map(x => x.lag), [{ name: '상관계수 r', y: r.lags.map(x => x.r), c: '#2a78d6' }], '시각 맞춤별 상관계수', '시각 맞춤 (시간)', 'r', { d: 3 })}</div>`;
   if (ys.length >= 2) h += `<div class="grid2" style="margin-top:8px">${chartBars(ys.map(([y]) => String(y)), ys.map(([, q]) => q.s / q.n), '기준 자료 연평균풍속 (자료 80% 이상인 해)', '평균풍속 (m/s)', (i, v) => `${ys[i][0]}: ${f(v, 2)} m/s`)}${st.sectors ? chartRose(st.sectors, ui.rose, '장기 보정 풍배도', 'rose') : ''}</div>`;
+  { const de = site().design, on = de && de.mcp && de.dsId === D.id; h += `<div class="${on ? 'hint' : 'warnbox'}" style="margin-top:10px">${on ? `✓ 지금 대표 풍황은 이 장기 보정 결과입니다 (${esc(de.src)}).` : `<div>지금 대표 풍황은 장기 보정이 <b>적용되지 않은</b> 값입니다${de ? ` (${esc(de.src)})` : ''}. 발전량·보고서에 쓰려면 아래 버튼을 누르세요.</div>`}</div>`; }
   h += `<div class="row" style="margin-top:10px"><button class="btn pri" data-act="mcpDesign">장기 보정 결과를 대표 풍황으로 지정</button><span class="hint">허브 해발 ${f(C.hubZ, 1)} m · 공기밀도·시어는 측정 자료 값을 씁니다.</span></div>`;
   return h + '</div>';
 }
@@ -768,12 +770,16 @@ async function mcpLoad(D, fileList) {
   const parts = [], names = [], bad = [];
   for (const x of files) { if (!/\.(csv|txt|tsv)$/i.test(x.name)) { bad.push(x.name); continue; } const p = W.parseKmaWind(decodeText(x.buf)); if (p) { parts.push(p); names.push(x.name); } else bad.push(x.name); }
   if (!parts.length) { toast('풍속·일시 열을 찾지 못했습니다. 기상청 시간자료 CSV인지 확인하세요.', 5000); return; }
-  const old = D.mcp && D.mcp.ref; if (old) parts.unshift({ t: Array.from(old.t), v: Array.from(old.v), d: Array.from(old.d) });
+  const key = q => q.id || q.name || ''; const st = [...new Set(parts.map(key).filter(Boolean))];
+  if (st.length > 1) { toast(`관측소가 ${st.length}곳 섞여 있습니다(${[...new Set(parts.map(q => q.name).filter(Boolean))].join(', ')}). 서로 다른 관측소 자료는 합치면 안 되니, 한 관측소 파일만 넣어 주세요.`, 8000); return; }
+  let old = D.mcp && D.mcp.ref; const oldKey = old && (old.id || old.name);
+  if (old && st.length && oldKey && oldKey !== st[0] && !(old.name && old.name.includes(','))) { toast(`기준 자료를 ${old.name || old.id}에서 ${parts[0].name || st[0]}(으)로 바꿨습니다. 관측소가 다르면 합치지 않고 새로 넣습니다.`, 6000); old = null; }
+  else if (old && old.name && old.name.includes(',')) old = null; // 예전에 섞여 들어간 자료는 버리고 새로
+  if (old) parts.unshift({ t: Array.from(old.t), v: Array.from(old.v), d: Array.from(old.d) });
   const m = W.mergeKma(parts); const p0 = parts.find(p => p.cols) || {};
   const nm = new Set(parts.filter(p => p.name).map(p => p.name));
-  D.mcp = { opt: (D.mcp && D.mcp.opt) || { method: 'vr', lag: 0, from: '', to: '' }, ref: { name: [...nm].join(', ') || (old && old.name) || '', id: p0.id || (old && old.id) || '', cols: (old && old.cols) || p0.cols, files: [...(old ? old.files : []), ...names], ...m } };
-  if (nm.size > 1) toast(`관측소가 ${nm.size}곳 섞여 있습니다: ${[...nm].join(', ')}. 한 관측소 자료만 넣어 주세요.`, 7000);
-  else toast(`기준 자료 ${fi(m.t.length)}개(${W.fmtDate(m.t[0])} ~ ${W.fmtDate(m.t[m.t.length - 1])})를 넣었습니다.${bad.length ? ` 읽지 못한 파일 ${bad.length}개.` : ''}`, 5000);
+  D.mcp = { opt: (D.mcp && D.mcp.opt) || { method: 'vr', lag: 0, from: '', to: '' }, ref: { name: [...nm][0] || (old && old.name) || '', id: p0.id || (old && old.id) || '', cols: (old && old.cols) || p0.cols, files: [...(old ? old.files : []), ...names], ...m } };
+  toast(`기준 자료 ${fi(m.t.length)}개(${W.fmtDate(m.t[0])} ~ ${W.fmtDate(m.t[m.t.length - 1])})를 넣었습니다.${bad.length ? ` 읽지 못한 파일 ${bad.length}개.` : ''}`, 5000);
   D._mcp = null; busy(() => { render(); save(); });
 }
 /* ---------- 대표 풍황 ---------- */
