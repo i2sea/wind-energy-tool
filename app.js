@@ -593,7 +593,8 @@ function viewTS(D) {
     h += `<tr class="sum"><td>전체</td><td>100.00</td><td>${f(hub.mean, 2)}</td><td>${f(hub.k, 3)}</td><td>${f(hub.A, 3)}</td><td>100.0</td><td>${C.sh ? f(C.sh.alpha, 3) : '-'}</td><td>${fi(hub.n)}</td></tr></table></div></div>`;
   }
   h += mcpCard(D, C);
-  h += `<div class="card"><h2>대표 풍황으로 지정</h2><div class="row"><button class="btn pri" data-act="tsDesign">이 시계열의 허브높이 결과를 대표 풍황으로 지정</button><span class="hint">허브 해발 ${f(C.hubZ, 1)} m, 방향별 Weibull ${hub.sectors ? '포함' : '없음'}, 공기밀도 ${C.rho ? '측정 기온·기압으로 계산' : '자료 없음 → 1.225'}</span></div></div>`;
+  { const mr = D.mcp && D.mcp.ref ? mcpCompute(D, C) : null, useM = mr && !mr.err;
+  h += `<div class="card"><h2>대표 풍황으로 지정</h2><div class="row"><button class="btn pri" data-act="tsDesign">${useM ? `장기 보정 결과(${esc(D.mcp.ref.name || '기준 자료')})를 대표 풍황으로 지정` : '이 시계열의 허브높이 결과를 대표 풍황으로 지정'}</button><span class="hint">허브 해발 ${f(C.hubZ, 1)} m, 방향별 Weibull ${hub.sectors ? '포함' : '없음'}, 공기밀도 ${C.rho ? '측정 기온·기압으로 계산' : '자료 없음 → 1.225'}</span></div><div class="hint" style="margin-top:4px">${useM ? '장기 보정 자료가 있어 장기 보정 결과로 지정합니다. 측정 자료 그대로 쓰려면 장기 보정 칸에서 "기준 자료 지우기"를 누르세요.' : '장기 보정 칸에 기상청 자료를 넣으면 이 버튼이 장기 보정 결과로 지정합니다.'}</div></div>`; }
   return h;
 }
 
@@ -694,8 +695,8 @@ function mcpPeriod(D) { const ts = D.ser.ts, now = new Date(); const t1 = new Da
   return { from: `${y0}-01-01`, to: W.fmtDate(t1.getTime()), m0: W.fmtDate(ts[0]), m1: W.fmtDate(ts[ts.length - 1] - 1) }; }
 function mcpGuide(D, open) {
   const S = site(), L = mcpStations(S), pd = mcpPeriod(D); const KO = { buoy: '해양기상부이', light: '등표', asos: '종관(ASOS)' };
-  const how = `<ol style="margin:6px 0 0 18px;padding:0;font-size:12px;line-height:1.7"><li><a href="${MARINE_DASH}" target="_blank" rel="noopener">해양 바람·파랑 관측 대시보드</a>를 열고 지도에서 추천 지점을 누릅니다. (종관 ASOS는 기상자료개방포털 data.kma.go.kr → 종관기상관측 → 시간자료)</li><li>자료 내려받기 기간을 <b>${pd.from} ~ ${pd.to}</b>로 넣고 CSV를 내려받습니다. 측정 기간(${pd.m0} ~ ${pd.m1})이 들어가고 장기 10년 이상이 되는 기간입니다.</li><li>받은 CSV를 이 칸에 넣습니다.</li></ol>`;
-  const tbl = L.length ? `<div class="tw" style="margin-top:6px"><table class="t" style="max-width:640px"><tr><th></th><th>지점</th><th>종류</th><th>지점번호</th><th>거리 km</th><th>받는 곳</th></tr>${L.map(s => `<tr${s.best ? ' class="hub"' : ''}><td>${s.best ? '★ 추천' : ''}</td><td class="txt">${esc(s.name)}</td><td class="txt">${KO[s.kind]}${s.sub ? ' · ' + s.sub : ''}</td><td>${esc(s.no || '-')}</td><td>${f(s.dist, 1)}</td><td class="txt">${s.kind === 'asos' ? '기상자료개방포털' : '대시보드'}</td></tr>`).join('')}</table></div>
+  const how = `<ol style="margin:6px 0 0 18px;padding:0;font-size:12px;line-height:1.7"><li><a href="${MARINE_DASH}" target="_blank" rel="noopener">해양 바람·파랑 관측 대시보드</a>를 열고 지도에서 추천 지점을 누릅니다. 해양기상부이·등표·종관(ASOS) 모두 대시보드에서 받을 수 있습니다.</li><li>자료 내려받기 기간을 <b>${pd.from} ~ ${pd.to}</b>로 넣고 CSV를 내려받습니다. 측정 기간(${pd.m0} ~ ${pd.m1})이 들어가고 장기 10년 이상이 되는 기간입니다.</li><li>받은 CSV를 이 칸에 넣습니다.</li></ol>`;
+  const tbl = L.length ? `<div class="tw" style="margin-top:6px"><table class="t" style="max-width:640px"><tr><th></th><th>지점</th><th>종류</th><th>지점번호</th><th>거리 km</th><th>받는 곳</th></tr>${L.map(s => `<tr${s.best ? ' class="hub"' : ''}><td>${s.best ? '★ 추천' : ''}</td><td class="txt">${esc(s.name)}</td><td class="txt">${KO[s.kind]}${s.sub ? ' · ' + s.sub : ''}</td><td>${esc(s.no || '-')}</td><td>${f(s.dist, 1)}</td><td class="txt">대시보드</td></tr>`).join('')}</table></div>
    <div class="hint">★ 추천은 오래 운영한 해양기상부이 중 가까운 두 곳입니다. 바다 위 부이가 보통 측정기와 상관이 가장 좋고, 등표·해안 관측소는 섬·지형 영향을 받습니다. 두 곳을 차례로 넣어 상관계수 r이 높은 쪽을 쓰세요. 지점번호가 없는 부이는 최근에 생겨 10년 자료가 없을 수 있습니다.</div>` : '<div class="hint">1 풍황자료 지점에 위도·경도를 넣으면 가까운 관측소를 거리순으로 보여 줍니다.</div>';
   return `<details ${open ? 'open' : ''} style="margin-top:8px"><summary>어느 관측소 자료를 받을까</summary>${tbl}${how}</details>`;
 }
@@ -711,6 +712,11 @@ function mcpAutoLT(R) {
   const e = y1 * 12 + m1, st = e - yrs * 12 + 1;
   return { from: Date.UTC(Math.floor(st / 12), st % 12, 1), to: Date.UTC(Math.floor((e + 1) / 12), (e + 1) % 12, 1), yrs };
 }
+function mcpDesignNow(D, C, r) { const st = r.st, R = D.mcp.ref;
+    setDesign({ dsId: D.id, src: `장기 보정(MCP): ${D.name} + ${R.name || '기준 자료'} (${W.fmtDate(r.ltFrom - 1).slice(0, 4)}~${W.fmtDate(r.ltTo - 1).slice(0, 4)})`, z: C.hubZ, mean: st.mean, k: st.k, A: st.A, rho: C.rho ? C.rho.rhoHub : rhoDefault, alpha: C.sh ? C.sh.alpha : NaN,
+      sectors: st.sectors ? st.sectors.map(s => ({ dir: s.dir, freq: s.freq, k: Number.isFinite(s.k) ? s.k : st.k, A: Number.isFinite(s.A) ? s.A : st.A })) : null, hist: st.secHist || null,
+      mcp: mcpEvidence(D, C, r),
+      note: `측정 ${W.fmtDate(r.conc.from)} ~ ${W.fmtDate(r.conc.to - 1)}을 ${R.name || '기준 자료'}로 장기 보정(${D.mcp.opt.method === 'lin' ? '선형 회귀' : '분산비'}, r ${f(r.all.r, 3)}). 측정 기간 평균 ${f(C.hub.mean, 2)} → 장기 ${f(st.mean, 2)} m/s.` }); }
 function mcpEvidence(D, C, r) { const R = D.mcp.ref, st = r.st;
   return { ref: R.name, id: R.id, r: r.all.r, n: r.conc.n, method: D.mcp.opt.method, lag: +D.mcp.opt.lag || 0, ltFrom: r.ltFrom, ltTo: r.ltTo, measMean: C.hub.mean, ltMean: st.mean, hubZ: C.hubZ, files: R.files.slice(0, 20), cols: R.cols, step: R.step,
         concFrom: r.conc.from, concTo: r.conc.to, concRef: r.conc.ref, concMast: r.conc.mast, refLT: r.refLT, a: r.all.a, b: r.all.b, k: st.k, A: st.A,
@@ -761,8 +767,8 @@ function mcpCard(D, C) {
   const ys = [...yr.entries()].filter(([, q]) => q.n > 0.8 * 8766 * 3600000 / R.step).sort((a, b) => a[0] - b[0]);
   h += `<div class="grid2" style="margin-top:8px">${chartScatter(r.sample, r.all.a, r.all.b, '겹친 시간 풍속 비교', `기준 자료 ${R.name || ''} (m/s)`, '측정기 허브높이 (m/s)')}${chartLines(r.lags.map(x => x.lag), [{ name: '상관계수 r', y: r.lags.map(x => x.r), c: '#2a78d6' }], '시각 맞춤별 상관계수', '시각 맞춤 (시간)', 'r', { d: 3 })}</div>`;
   if (ys.length >= 2) h += `<div class="grid2" style="margin-top:8px">${chartBars(ys.map(([y]) => String(y)), ys.map(([, q]) => q.s / q.n), '기준 자료 연평균풍속 (자료 80% 이상인 해)', '평균풍속 (m/s)', (i, v) => `${ys[i][0]}: ${f(v, 2)} m/s`)}${st.sectors ? chartRose(st.sectors, ui.rose, '장기 보정 풍배도', 'rose') : ''}</div>`;
-  { const de = site().design, on = de && de.mcp && de.dsId === D.id; h += `<div class="${on ? 'hint' : 'warnbox'}" style="margin-top:10px">${on ? `✓ 지금 대표 풍황은 이 장기 보정 결과입니다 (${esc(de.src)}).` : `<div>지금 대표 풍황은 장기 보정이 <b>적용되지 않은</b> 값입니다${de ? ` (${esc(de.src)})` : ''}. 발전량·보고서에 쓰려면 아래 버튼을 누르세요.</div>`}</div>`; }
-  h += `<div class="row" style="margin-top:10px"><button class="btn pri" data-act="mcpDesign">장기 보정 결과를 대표 풍황으로 지정</button><span class="hint">허브 해발 ${f(C.hubZ, 1)} m · 공기밀도·시어는 측정 자료 값을 씁니다.</span></div>`;
+  { const de = site().design, on = de && de.mcp && de.dsId === D.id; h += `<div class="${on ? 'hint' : 'warnbox'}" style="margin-top:10px">${on ? `✓ 지금 대표 풍황은 이 장기 보정 결과입니다 (${esc(de.src)}).` : `<div>지금 대표 풍황은 장기 보정이 <b>적용되지 않은</b> 값입니다${de ? ` (${esc(de.src)})` : ''}. 발전량·보고서에 쓰려면 아래 "대표 풍황으로 지정"을 누르세요.</div>`}</div>`; }
+  h += `<div class="hint">허브 해발 ${f(C.hubZ, 1)} m · 공기밀도·시어는 측정 자료 값을 씁니다. 대표 풍황으로 쓰려면 아래 "대표 풍황으로 지정"을 누르세요.</div>`;
   return h + '</div>';
 }
 async function mcpLoad(D, fileList) {
@@ -2244,12 +2250,9 @@ document.addEventListener('click', e => {
     setDesign({ dsId: D.id, src: `방향별 표: ${D.name}`, z: D.height, mean: T.mean, k: T.k, A: T.A, rho: W.num(D.rho) || rhoDefault, sectorMode: T.overall ? '전체 Weibull 공통' : '방향별 Weibull', sectors: D.rows.filter(r => r.freq > 0).map(r => ({ dir: r.dir, freq: r.freq * 100 / T.fs, k: T.overall ? D.wk : r.k, A: T.overall ? D.wA : r.A })), note: notes.join(' ') }); }
   else if (a === 'mcpAdd') { $('#mcpIn').click(); return; }
   else if (a === 'mcpClear') { const D = dsSel(); if (D) { delete D.mcp; D._mcp = null; render(); save(); } return; }
-  else if (a === 'mcpDesign') { const D = dsSel(), C = tsCompute(D), r = mcpCompute(D, C); if (!r || r.err) return; const st = r.st, R = D.mcp.ref;
-    setDesign({ dsId: D.id, src: `장기 보정(MCP): ${D.name} + ${R.name || '기준 자료'} (${W.fmtDate(r.ltFrom - 1).slice(0, 4)}~${W.fmtDate(r.ltTo - 1).slice(0, 4)})`, z: C.hubZ, mean: st.mean, k: st.k, A: st.A, rho: C.rho ? C.rho.rhoHub : rhoDefault, alpha: C.sh ? C.sh.alpha : NaN,
-      sectors: st.sectors ? st.sectors.map(s => ({ dir: s.dir, freq: s.freq, k: Number.isFinite(s.k) ? s.k : st.k, A: Number.isFinite(s.A) ? s.A : st.A })) : null, hist: st.secHist || null,
-      mcp: mcpEvidence(D, C, r),
-      note: `측정 ${W.fmtDate(r.conc.from)} ~ ${W.fmtDate(r.conc.to - 1)}을 ${R.name || '기준 자료'}로 장기 보정(${D.mcp.opt.method === 'lin' ? '선형 회귀' : '분산비'}, r ${f(r.all.r, 3)}). 측정 기간 평균 ${f(C.hub.mean, 2)} → 장기 ${f(st.mean, 2)} m/s.` }); }
-  else if (a === 'tsDesign') { const D = dsSel(), C = tsCompute(D), hb = C.hub; setDesign({ dsId: D.id, src: `시계열: ${D.name} (${W.fmtDate(D.ser.ts[0])} ~ ${W.fmtDate(D.ser.ts[D.ser.ts.length - 1])})`, z: C.hubZ, mean: hb.mean, k: hb.k, A: hb.A, rho: C.rho ? C.rho.rhoHub : rhoDefault, alpha: C.sh ? C.sh.alpha : NaN, sectors: hb.sectors ? hb.sectors.map(s => ({ dir: s.dir, freq: s.freq, k: Number.isFinite(s.k) ? s.k : hb.k, A: Number.isFinite(s.A) ? s.A : hb.A })) : null, hist: hb.secHist || null, note: [hb.n < 52000 ? '1년 미만 측정 자료 — 장기 보정 전 값입니다.' : '', hb.sectors && hb.sectors.some(s => !Number.isFinite(s.k)) ? '자료가 적은 방향은 전체 Weibull로 채웠습니다.' : ''].filter(Boolean).join(' ') }); }
+  else if (a === 'mcpDesign') { const D = dsSel(), C = tsCompute(D), r = mcpCompute(D, C); if (r && !r.err) mcpDesignNow(D, C, r); }
+  else if (a === 'tsDesign') { const D = dsSel(), C = tsCompute(D), hb = C.hub;
+    if (D.mcp && D.mcp.ref) { const r = mcpCompute(D, C); if (r && !r.err) { mcpDesignNow(D, C, r); return; } toast('장기 보정을 계산할 수 없어 측정 자료 그대로 지정합니다' + (r && r.err ? ': ' + r.err : '.'), 6000); } setDesign({ dsId: D.id, src: `시계열: ${D.name} (${W.fmtDate(D.ser.ts[0])} ~ ${W.fmtDate(D.ser.ts[D.ser.ts.length - 1])})`, z: C.hubZ, mean: hb.mean, k: hb.k, A: hb.A, rho: C.rho ? C.rho.rhoHub : rhoDefault, alpha: C.sh ? C.sh.alpha : NaN, sectors: hb.sectors ? hb.sectors.map(s => ({ dir: s.dir, freq: s.freq, k: Number.isFinite(s.k) ? s.k : hb.k, A: Number.isFinite(s.A) ? s.A : hb.A })) : null, hist: hb.secHist || null, note: [hb.n < 52000 ? '1년 미만 측정 자료 — 장기 보정 전 값입니다.' : '', hb.sectors && hb.sectors.some(s => !Number.isFinite(s.k)) ? '자료가 적은 방향은 전체 Weibull로 채웠습니다.' : ''].filter(Boolean).join(' ') }); }
   else if (a === 'wgDesign') {
     const D = dsSel(), r = D.reports[D.sel ?? D.reports.length - 1], elev = +S.elev || 0;
     const z = W.num($('#wgHub').value), al = W.num($('#wgAlpha').value); ui.wgHub = z;
@@ -2639,7 +2642,7 @@ async function reportModel(F) {
   h2('장기 참조 자료');
   p(lt.years ? `장기 보정에는 ${lt.refType === 'reanalysis' ? '재분석 자료' : lt.refType === 'station' ? '인근 관측소 자료' : '장기 참조 자료'} ${f(lt.years, 1)}년 (${lt.yearsText || ''})을 사용하였다${Number.isFinite(lt.r) ? `. 측정 자료와 장기 참조 자료의 상관계수는 r = ${f(lt.r, 3)}로, ${lt.r >= 0.9 ? '매우 좋음' : lt.r >= 0.8 ? '좋음' : lt.r >= 0.7 ? '보통' : '나쁨'} 수준이다` : ''} (${sref(lt.src, '장기 보정')}).` : '장기 참조 자료 정보가 없다. 1년 미만 측정 자료이면 장기 보정이 필요하다.');
   table({ caption: '상관계수에 따른 장기 참조 자료 품질', title: '상관계수에 따른 품질 판정', widths: [1.4, 1, 1, 1, 1, 1], head: [['상관계수', '0.5 - 0.6', '0.6 - 0.7', '0.7 - 0.8', '0.8 - 0.9', '0.9 - 1.0']], rows: [['품질', '매우 나쁨', '나쁨', '보통', '좋음', '매우 좋음']], align: ['C', 'C', 'C', 'C', 'C', 'C'] });
-  if (lt.mcp && !lt.mcp.sec) p('장기 보정 계산 근거(방향별 식·그래프)가 저장되어 있지 않다. 1 풍황자료 탭 장기 보정 칸에서 기준 자료를 넣고 "장기 보정 결과를 대표 풍황으로 지정"을 다시 누르면 이 절에 들어간다.');
+  if (lt.mcp && !lt.mcp.sec) p('장기 보정 계산 근거(방향별 식·그래프)가 저장되어 있지 않다. 1 풍황자료 탭 장기 보정 칸에 기준 자료를 넣고 맨 아래 "대표 풍황으로 지정"을 다시 누르면 이 절에 들어간다.');
   if (lt.mcp && lt.mcp.sec) { const m = lt.mcp, mt = m.method === 'lin' ? '선형 회귀' : '분산비(variance ratio)', idx = 100 * (m.refLT / m.concRef - 1), chg = 100 * (m.ltMean / m.measMean - 1);
     h3('장기 보정 방법');
     p(`측정기 허브높이(해발 ${f(m.hubZ, 1)} m) 풍속을 기준 자료 간격(${f(m.step / 3600000, m.step % 3600000 ? 2 : 0)}시간)으로 평균하여 기준 자료와 같은 시각끼리 짝지었다${m.lag ? ` (기준 자료 시각을 ${m.lag > 0 ? '+' : ''}${m.lag}시간 옮김)` : ''}. 기준 자료 풍향으로 ${m.sec.length}개 방향 구간을 나누고, 구간마다 ${mt} 방법으로 측정기 풍속 = a + b × 기준 풍속의 관계식과 두 자료의 풍향 차이를 구하였다. 겹친 자료가 50개 미만인 구간은 전체 식을 썼다. 이 관계식을 기준 자료의 장기 기간 전체에 적용하여 측정기 허브높이의 장기 시계열을 만들고, 그 시계열로 Weibull 분포와 방향별 분포를 다시 구하였다.`);
@@ -2902,7 +2905,7 @@ function viewReport() {
    <div class="row"><div class="fld"><label>단지 제목 (표지·머리말·본문)</label><input data-farm="name" value="${esc(F.name)}" style="width:320px"></div><div class="fld"><label>보고서 대상 단지(배치안)</label><select data-act2="rpfarm">${P.farms.map(x => `<option value="${x.id}" ${x.id === F.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></div>
    <button class="btn pri" data-act="rphwpx">한글(HWPX) 내려받기</button><button class="btn pri" data-act="rppdf">PDF 내려받기</button><button class="btn" data-act="rpmake">미리보기 다시 만들기</button></div>
    ${!S || !S.design ? '<div class="warnbox"><div>이 단지의 지점에 대표 풍황이 없습니다. 1단계에서 지정해 주세요.</div></div>' : ''}
-   ${S && S.design && !S.design.mcp && (S.datasets || []).some(d => d.mcp && d.mcp.ref) ? `<div class="warnbox"><div>장기 보정 자료는 넣었지만 <b>대표 풍황에 적용되지 않아</b> 보고서에 장기 보정 절·그래프가 들어가지 않습니다. 지금 대표 풍황: ${esc(S.design.src || '')}. 1 풍황자료 탭 장기 보정 칸의 "장기 보정 결과를 대표 풍황으로 지정"을 누른 뒤 미리보기를 다시 만드세요.</div></div>` : ''}
+   ${S && S.design && !S.design.mcp && (S.datasets || []).some(d => d.mcp && d.mcp.ref) ? `<div class="warnbox"><div>장기 보정 자료는 넣었지만 <b>대표 풍황에 적용되지 않아</b> 보고서에 장기 보정 절·그래프가 들어가지 않습니다. 지금 대표 풍황: ${esc(S.design.src || '')}. 1 풍황자료 탭 맨 아래 "대표 풍황으로 지정"을 누른 뒤 미리보기를 다시 만드세요.</div></div>` : ''}
    <h3 style="margin:12px 0 6px;font-size:13px">보고서 정보 <span class="hint">표지·정보 쪽·머리말·꼬리말에 들어갑니다. 비어 있으면 빈칸으로 둡니다.</span></h3>
    <div class="grid2" style="grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:6px 14px">${REPORT_FIELDS.map(([k, l]) => `<div class="fld"><label>${l}${rc[k] ? '' : ' <span class="tag blank">비어 있음</span>'}</label>${k === 'status' ? `<select data-rp="status">${['초안', '최종'].map(o => `<option ${rc.status === o ? 'selected' : ''}>${o}</option>`).join('')}</select>` : `<input data-rp="${k}" value="${esc(rc[k] || '')}" style="width:100%">`}</div>`).join('')}
    <div class="fld"><label>보안 등급</label><select data-rp="conf">${['A', 'B', 'C'].map(o => `<option ${rc.conf === o ? 'selected' : ''}>${o}</option>`).join('')}</select></div></div></div>`;
