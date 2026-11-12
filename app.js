@@ -691,8 +691,8 @@ function mcpStations(S) {
   const L = A.filter(s => s.dist < 100).slice(0, 8); best.forEach(s => { if (!L.includes(s)) L.push(s); });
   return L.sort((a, b) => a.dist - b.dist);
 }
-// 측정 기간 표시: 지점에 직접 넣은 측정 시작일·종료일이 우선, 비어 있으면 자료의 처음·끝
-function measRangeTxt(S, D) { const ts = D.ser.ts, f0 = S ? parseYmd(S.measFrom) : NaN, t0 = S ? parseYmd(S.measTo) : NaN;
+// 측정 기간 표시: 지점의 측정 시작일·종료일 → 시계열 분석 기간(시작일·종료일) → 자료의 처음·끝 순
+function measRangeTxt(S, D) { const ts = D.ser.ts, o = D.opt || {}, f0 = [S && S.measFrom, o.from].map(parseYmd).find(Number.isFinite) ?? NaN, t0 = [S && S.measTo, o.to].map(parseYmd).find(Number.isFinite) ?? NaN;
   const a = Number.isFinite(f0) ? f0 : ts[0], b = Number.isFinite(t0) ? t0 : endDay(ts[ts.length - 1]); return { from: a, to: b, txt: `${W.fmtDate(a)} ~ ${W.fmtDate(b)}` }; }
 function mcpPeriod(D) { const mr = measRangeTxt(site(), D), now = new Date(); const t1 = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0)); const y0 = Math.min(new Date(mr.from).getUTCFullYear(), t1.getUTCFullYear() - 9);
   return { from: `${y0}-01-01`, to: W.fmtDate(t1.getTime()), m0: W.fmtDate(mr.from), m1: W.fmtDate(mr.to) }; }
