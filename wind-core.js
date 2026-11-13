@@ -1007,11 +1007,14 @@ W.mcp = function (mast, ref, opt = {}) {
   const minN = Math.max(1, Math.ceil(per / 2));
   const mAt = k => { const o = mh.get(k); if (!o || o.n < minN) return null; return { v: o.s / o.n, d: o.nd ? (Math.atan2(o.sx, o.sy) * 180 / Math.PI + 360) % 360 : NaN }; };
   const rk = Array.from(ref.t, x => Math.round(x / HR));
-  const pairsAt = L => { const P = []; for (let i = 0; i < rk.length; i++) { const m = mAt(rk[i] + L); if (m) P.push([ref.v[i], m.v, ref.d[i], m.d]); } return P; };
+  const pairsAt = L => { const P = []; for (let i = 0; i < rk.length; i++) { const m = mAt(rk[i] + L); if (m) P.push([ref.v[i], m.v, ref.d[i], m.d, ref.t[i]]); } return P; };
   const corr = P => { const n = P.length; if (n < 10) return { n, r: NaN }; let sx = 0, sy = 0, sxx = 0, syy = 0, sxy = 0; for (const [x, y] of P) { sx += x; sy += y; sxx += x * x; syy += y * y; sxy += x * y; } const cov = sxy / n - sx * sy / n / n, vx = sxx / n - (sx / n) ** 2, vy = syy / n - (sy / n) ** 2; return { n, r: cov / Math.sqrt(vx * vy), mx: sx / n, my: sy / n, sx: Math.sqrt(vx), sy: Math.sqrt(vy), cov }; };
   const lags = []; for (let L = -3; L <= 3; L++) lags.push({ lag: L, ...corr(pairsAt(L)) });
   const best = lags.filter(x => Number.isFinite(x.r)).sort((a, b) => b.r - a.r)[0];
   const P = pairsAt(lag); const all = corr(P);
+  // 일평균 상관(하루 자료가 절반 이상인 날만) — 보고서에서 흔히 쓰는 값
+  const dayR = (() => { const per = Math.round(86400000 / HR), m = new Map(); for (const q of P) { const k = Math.floor((q[4] - 1) / 86400000); const z = m.get(k) || [0, 0, 0]; z[0] += q[0]; z[1] += q[1]; z[2]++; m.set(k, z); }
+    const D = [...m.values()].filter(z => z[2] >= per / 2).map(z => [z[0] / z[2], z[1] / z[2]]); const c = corr(D); return { r: c.r, n: D.length }; })();
   if (P.length < 200) return { err: `겹치는 시간이 ${P.length}개뿐입니다. 측정 기간과 기준 자료 기간이 겹치는지, 시각 기준(KST)이 같은지 확인하세요.`, lags, best, nPairs: P.length };
   const fit = c => opt.method === 'lin' ? { b: c.cov / (c.sx * c.sx), a: c.my - c.cov / (c.sx * c.sx) * c.mx } : { b: c.sy / c.sx, a: c.my - c.sy / c.sx * c.mx };
   const g = fit(all);
@@ -1026,7 +1029,7 @@ W.mcp = function (mast, ref, opt = {}) {
     lt.ts.push(tt + lag * HR); lt.ws.push(Math.max(0, ft.a + ft.b * v)); lt.dir.push(q && d >= 0 ? ((d + q.veer) % 360 + 360) % 360 : NaN); rs += v; rn++; }
   const conc = { ref: all.mx, mast: all.my, n: P.length, from: ref.t[rk.findIndex(k => mAt(k + lag))], to: ref.t[rk.length - 1 - [...rk].reverse().findIndex(k => mAt(k + lag))] };
   const kk = Math.max(1, Math.ceil(P.length / 1500)), sample = P.filter((_, i) => i % kk === 0).map(q => [q[0], +q[1].toFixed(2)]);
-  return { lags, best, all: { ...all, ...g }, sec, conc, sample, refLT: rn ? rs / rn : NaN, ltN: rn, lt: { ts: Float64Array.from(lt.ts), ws: Float32Array.from(lt.ws), dir: Float32Array.from(lt.dir), step: HR }, ltFrom: lt.ts[0], ltTo: lt.ts[lt.ts.length - 1] };
+  return { lags, best, all: { ...all, ...g }, day: dayR, sec, conc, sample, refLT: rn ? rs / rn : NaN, ltN: rn, lt: { ts: Float64Array.from(lt.ts), ws: Float32Array.from(lt.ws), dir: Float32Array.from(lt.dir), step: HR }, ltFrom: lt.ts[0], ltTo: lt.ts[lt.ts.length - 1] };
 };
 
 /* ===== 빈 기간 채우기: 기준 측정기(base)의 빈 시간을 다른 측정기(other) 값으로 =====
