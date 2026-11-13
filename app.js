@@ -1021,6 +1021,7 @@ function farmTurbCmpHtml(F) {
   return h + '</div>';
 }
 function chartCurve(T, rho, mode) {
+  if (!T.curve || T.curve.length < 2 || !(T.ratedKW > 0)) return `<div class="chart"><div class="ct">출력곡선</div><div class="hint" style="padding:30px 0;text-align:center">아직 출력곡선이 없습니다. 아래 "표 붙여넣기"로 풍속·출력·Ct를 넣으세요.</div></div>`;
   const F = frame(420, 230, { l: 46, r: 10, t: 10, b: 30 });
   const vmax = Math.max(25, Math.ceil(T.curve[T.curve.length - 1][0] + 2));
   const xs = nice(0, vmax, 6), ys = nice(0, T.ratedKW * 1.05);
