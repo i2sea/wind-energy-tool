@@ -15,6 +15,7 @@ P.active = P.sites[0].id;
 const site = () => P.sites.find(s => s.id === P.active) || P.sites[0];
 const dsSel = () => { const s = site(); return s.datasets.find(d => d.id === s.sel) || null; };
 const ui = { rose: 'freq', month: 'ym', wgHeight: null, secH: null, tab: 'wind', turbSel: null };
+const turbOk = T => !!(T && Array.isArray(T.curve) && T.curve.length >= 2 && T.ratedKW > 0); // 출력곡선이 있는 터빈만 계산·비교에
 const ensureTurbines = () => { if (!Array.isArray(P.turbines) || !P.turbines.length) P.turbines = [JSON.parse(JSON.stringify(W.DOOSAN_DS205_10))]; };
 
 /* ================= 도우미 ================= */
@@ -887,7 +888,7 @@ function turbSet(S) {
 function turbCalc(S, ov) {
   const d = S.design; if (!d) return null; let t = turbSet(S);
   if (ov && (ov.tid || Number.isFinite(ov.hub))) { t = { ...t }; if (ov.tid) { t.tid = ov.tid; t.hub = turbOf(ov.tid).hub; } if (Number.isFinite(ov.hub)) t.hub = ov.hub; }
-  const T = turbOf(t.tid);
+  const T = turbOf(t.tid); if (!turbOk(T)) return null;
   const al = Number.isFinite(t.alpha) ? { a: t.alpha, src: '직접 입력' } : siteAlpha(S);
   const s = Math.pow(t.hub / d.z, al.a);
   const st = stationPick(S), dk = designRhoKind(d); const rhoD = Number.isFinite(d.rho) ? d.rho - 0.113 * (t.hub - d.z) / 1000 : 1.225; const rhoSt = st ? rhoFromStation(st, t.hub) : NaN;
@@ -917,9 +918,10 @@ function chartMulti(series, title, xl, yl, o = {}) {
 }
 // 터빈 탭: 목록의 모든 터빈을 지점 대표 풍황으로 1기씩 계산
 function turbCompareHtml(S) {
-  if (!S.design || P.turbines.length < 2) return '';
-  const hubMode = ui.tcmpHub || 'own', hubSame = turbCalc(S).t.hub;
-  const L = P.turbines.map(T => { const c = turbCalc(S, { tid: T.id, hub: hubMode === 'same' ? hubSame : NaN }); return { T, c }; }).filter(x => x.c);
+  if (!S.design || P.turbines.filter(turbOk).length < 2) return '';
+  const hubMode = ui.tcmpHub || 'own', hubSame = (turbCalc(S) || { t: turbSet(S) }).t.hub;
+  const L = P.turbines.filter(turbOk).map(T => { const c = turbCalc(S, { tid: T.id, hub: hubMode === 'same' ? hubSame : NaN }); return { T, c }; }).filter(x => x.c);
+  if (L.length < 2) return '';
   const base = L.find(x => x.T.id === ui.tcmpBase) || L[0];
   const area = T => Math.PI * (T.rotor || 0) ** 2 / 4;
   const rel = (v, b) => b > 0 ? `${v >= b ? '+' : ''}${f(100 * (v / b - 1), 1)}%` : '-';
@@ -1075,7 +1077,7 @@ function viewTurbine(S) {
   ensureTurbines();
   const T0 = P.turbines.find(t => t.id === ui.turbSel) || P.turbines[0]; ui.turbSel = T0.id;
   let h = `<div class="card"><h2>터빈 목록 <span class="sub">출력곡선은 PDF에서 읽거나 붙여 넣습니다</span></h2>
-   <div class="dslist" style="margin-top:0">${P.turbines.map(t => { const ci = W.curveInfo(t.curve); return `<div class="ds ${t.id === T0.id ? 'on' : ''}" data-act="tsel" data-id="${t.id}">${P.turbines.length > 1 ? `<span class="x" data-act="tdel" data-id="${t.id}" title="삭제">×</span>` : ''}<div class="t"><span class="tag ts">터빈</span><span>${esc(t.name)}</span></div><div class="m">${f(t.ratedKW / 1000, 1)} MW · 로터 ${f(t.rotor, 0)} m · 허브 ${f(t.hub, 1)} m · ${ci.cutIn}/${ci.ratedV}/${ci.cutOut} m/s</div></div>`; }).join('')}</div>
+   <div class="dslist" style="margin-top:0">${P.turbines.map(t => { const ci = W.curveInfo(t.curve); return `<div class="ds ${t.id === T0.id ? 'on' : ''}" data-act="tsel" data-id="${t.id}">${P.turbines.length > 1 ? `<span class="x" data-act="tdel" data-id="${t.id}" title="삭제">×</span>` : ''}<div class="t"><span class="tag ts">터빈</span><span>${esc(t.name)}</span></div><div class="m">${f(t.ratedKW / 1000, 1)} MW · 로터 ${f(t.rotor, 0)} m · 허브 ${f(t.hub, 1)} m · ${turbOk(t) ? `${ci.cutIn}/${ci.ratedV}/${ci.cutOut}` : '출력곡선 없음'} m/s</div></div>`; }).join('')}</div>
    <div class="row" style="margin-top:10px"><button class="btn sm" data-act="tpdf">PDF에서 출력곡선 가져오기</button><button class="btn sm" data-act="tnew">새 터빈 (표 붙여넣기)</button><button class="btn sm" data-act="tdup">선택한 터빈 복제</button><select class="sm" id="tpreset" style="margin-left:6px"><option value="">기본 제공 터빈 추가…</option>${W.TURB_PRESETS.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join('')}</select><input type="file" id="turbPdf" accept=".pdf" multiple hidden></div>
    <div class="row" style="margin-top:6px"><button class="btn sm" data-act="tfImp">터빈 파일 가져오기 (.json)</button><button class="btn sm" data-act="tfExp">선택한 터빈 내보내기</button><button class="btn sm" data-act="tfExpAll">터빈 목록 전체 내보내기</button><input type="file" id="turbJson" accept=".json,application/json" multiple hidden>
    <span class="hint" style="margin-left:6px">해상풍력발전기 기초 설계도구와 같은 터빈 파일(gbs-tool-turbine) — 한 파일에 기초용 제원·하중표와 발전량용 출력곡선·Ct가 같이 들어갑니다.</span></div></div>`;
@@ -1088,7 +1090,7 @@ function viewTurbine(S) {
    <div class="fld"><label>출력곡선 기준 공기밀도 (kg/m³)</label><input class="n" data-turb="rhoRef" value="${T0.rhoRef ?? 1.225}">${T0.rhoRefNote ? `<span class="srcl" title="${esc(T0.rhoRefNote)}">${esc(T0.rhoRefNote)}</span>` : ''}</div>
    <div class="fld"><label>출력곡선 종류</label><select data-turb="curveType"><option value="" ${!T0.curveType ? 'selected' : ''}>모름</option><option value="measured" ${T0.curveType === 'measured' ? 'selected' : ''}>실측 인증 곡선</option><option value="warranted" ${T0.curveType === 'warranted' ? 'selected' : ''}>보증 곡선</option><option value="calc" ${T0.curveType === 'calc' ? 'selected' : ''}>계산 곡선</option></select>${T0.curveTypeNote ? `<span class="srcl" title="${esc(T0.curveTypeNote)}">${esc(T0.curveTypeNote)}</span>` : ''}</div>
    <div class="fld"><label>출력 제어</label><select data-turb="regulation"><option value="pitch" ${T0.regulation !== 'stall' ? 'selected' : ''}>피치 제어</option><option value="stall" ${T0.regulation === 'stall' ? 'selected' : ''}>실속 제어</option></select></div></div>
-   <div class="kv" style="margin-top:8px"><span>시동 / 정격 / 정지 풍속</span><span>${ci.cutIn} / ${ci.ratedV} / ${ci.cutOut} m/s (출력곡선에서 읽음)</span><span>로터 면적</span><span>${fi(Math.PI * (T0.rotor || 0) ** 2 / 4)} m² · 비출력 ${f(T0.ratedKW * 1000 / (Math.PI * (T0.rotor || 1) ** 2 / 4), 0)} W/m²</span></div>
+   <div class="kv" style="margin-top:8px"><span>시동 / 정격 / 정지 풍속</span><span>${turbOk(T0) ? `${ci.cutIn} / ${ci.ratedV} / ${ci.cutOut} m/s (출력곡선에서 읽음)` : '출력곡선을 넣으면 자동으로 나옵니다'}</span><span>로터 면적</span><span>${fi(Math.PI * (T0.rotor || 0) ** 2 / 4)} m² · 비출력 ${f(T0.ratedKW * 1000 / (Math.PI * (T0.rotor || 1) ** 2 / 4), 0)} W/m²</span></div>
    <div class="grid2" style="margin-top:10px"><div><div class="tw" style="max-height:420px"><table class="t"><tr><th>풍속 m/s</th><th>출력 kW</th><th>추력계수 Ct</th><th></th></tr>
    ${T0.curve.map((c, i) => `<tr><td><input data-cv="${i}" data-k="0" value="${c[0]}"></td><td><input data-cv="${i}" data-k="1" value="${c[1]}" style="width:80px"></td><td><input data-cv="${i}" data-k="2" value="${Number.isFinite(c[2]) ? c[2] : ''}"></td><td><span class="btn ghost sm" data-act="cvdel" data-i="${i}">×</span></td></tr>`).join('')}</table></div>
    <div class="row" style="margin-top:6px"><button class="btn sm" data-act="cvadd">줄 추가</button><button class="btn sm" data-act="cvpaste">표 붙여넣기</button></div>
@@ -1100,13 +1102,15 @@ function viewTurbine(S) {
   h += turbReqHtml(T0);
   // 전 지점 요약
   h += `<div class="card"><h2>지점별 터빈 1기 총발전량 <span class="sub">손실·후류 빼기 전</span></h2><div class="tw"><table class="t"><tr><th>지점</th><th>대표 풍황</th><th>터빈</th><th>허브 (해발 m)</th><th>허브 평균풍속</th><th>공기밀도</th><th>총발전량 MWh/년</th><th>이용률 %</th><th>전부하시간 h</th></tr>
-   ${P.sites.map(s2 => { const c = turbCalc(s2); if (!c) return `<tr><td class="txt">${esc(siteName(s2))}</td><td class="txt" colspan="8"><span class="tag blank">대표 풍황 없음</span></td></tr>`; return `<tr class="click ${s2.id === S.id ? 'sel' : ''}" data-act="site" data-id="${s2.id}"><td class="txt">${esc(siteName(s2))}</td><td class="txt">${f(s2.design.z, 1)} m · ${esc(s2.design.sectorMode || (s2.design.sectors ? '방향별' : '방향 없음'))}</td><td class="txt">${esc(c.T.name)}</td><td>${f(c.t.hub, 1)}</td><td>${f(c.meanV, 2)}</td><td>${f(c.rho, 3)}</td><td>${fi(c.r.mwh)}</td><td>${f(100 * c.cf, 1)}</td><td>${fi(c.flh)}</td></tr>`; }).join('')}</table></div></div>`;
+   ${P.sites.map(s2 => { const c = turbCalc(s2); if (!c) return `<tr><td class="txt">${esc(siteName(s2))}</td><td class="txt" colspan="8"><span class="tag blank">${s2.design ? '터빈 출력곡선 없음' : '대표 풍황 없음'}</span></td></tr>`; return `<tr class="click ${s2.id === S.id ? 'sel' : ''}" data-act="site" data-id="${s2.id}"><td class="txt">${esc(siteName(s2))}</td><td class="txt">${f(s2.design.z, 1)} m · ${esc(s2.design.sectorMode || (s2.design.sectors ? '방향별' : '방향 없음'))}</td><td class="txt">${esc(c.T.name)}</td><td>${f(c.t.hub, 1)}</td><td>${f(c.meanV, 2)}</td><td>${f(c.rho, 3)}</td><td>${fi(c.r.mwh)}</td><td>${f(100 * c.cf, 1)}</td><td>${fi(c.flh)}</td></tr>`; }).join('')}</table></div></div>`;
   return h;
 }
 function viewTurbSite(S) {
   const d = S.design;
   if (!d) return `<div class="card"><h2>${esc(siteName(S))} — 터빈 적용</h2><div class="warnbox"><div>이 지점은 대표 풍황이 지정되지 않았습니다. 1단계 풍황자료 탭에서 먼저 지정해 주세요.</div></div><button class="btn sm" data-act="tab" data-v="wind">풍황자료 탭으로</button></div>`;
-  const c = turbCalc(S), t = c.t, T = c.T;
+  const c = turbCalc(S);
+  if (!c) { const ts = turbSet(S); return `<div class="card"><h2>${esc(siteName(S))} — 터빈 적용</h2><div class="row"><div class="fld"><label>터빈</label><select data-ts="tid">${P.turbines.map(x => `<option value="${x.id}" ${x.id === ts.tid ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></div></div><div class="warnbox"><div>고른 터빈에 출력곡선이 없습니다. 위 터빈 목록에서 그 터빈을 골라 "표 붙여넣기"로 출력곡선을 넣거나, 다른 터빈을 고르세요.</div></div></div>`; }
+  const t = c.t, T = c.T;
   let h = `<div class="card design"><h2>${esc(siteName(S))} — 터빈 1기 총발전량 <span class="sub">대표 풍황: ${esc(d.src)}</span></h2><div class="row">
    <div class="fld"><label>터빈</label><select data-ts="tid">${P.turbines.map(x => `<option value="${x.id}" ${x.id === t.tid ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></div>
    <div class="fld"><label>허브높이 (해발 m)</label><input class="n" data-ts="hub" value="${t.hub}"></div>
@@ -1620,13 +1624,13 @@ function farmScale(F, c, Z) {
     return c.s;
   });
 }
-function farmTurb(F, c, r) { return r && r.tid && P.turbines.find(t => t.id === r.tid) || c.T; }
+function farmTurb(F, c, r) { const t = r && r.tid && P.turbines.find(t => t.id === r.tid); return turbOk(t) ? t : c.T; }
 const PERMIT_TOL_LO = 0.9, PERMIT_TOL_HI = 1.1; // 전기사업법 시행규칙: 허가 설비용량의 100분의 10 이하 변경은 변경허가 대상 아님
 function farmCalc(F, opt = {}) {
   const S = P.sites.find(s => s.id === F.siteId); if (!S || !S.design || !F.rows.length) return null;
   const c = turbCalc(S, { tid: F.tid, hub: F.hub }); if (!c) return null;
   const Z = zoneOf(F); const scale = opt.scale || farmScale(F, c, Z);
-  const Ti = F.rows.map(r => farmTurb(F, c, r)); const ext = (F.ext || []).flatMap(g => g.rows.map(r => ({ ...r, T: P.turbines.find(t => t.id === g.tid) || c.T })));
+  const Ti = F.rows.map(r => farmTurb(F, c, r)); const ext = (F.ext || []).flatMap(g => g.rows.map(r => ({ ...r, T: (t => turbOk(t) ? t : c.T)(P.turbines.find(t => t.id === g.tid)) })));
   const allT = [...Ti, ...ext.map(e => e.T)]; const pf = new Map(); const Pof = T => { if (!pf.has(T.id)) pf.set(T.id, W.powerFn(T, c.rho, c.t.dens)); return pf.get(T.id); };
   const rows = opt.rows || F.rows;
   // 허가 설비용량: 정격 합계가 허가의 ±10% 안이면 정격 그대로(변경허가 불필요 범위). +10%를 넘으면 허가량에 맞춰 모든 터빈 출력을 같은 비율로 제한
@@ -1820,7 +1824,7 @@ function optimizeDialog() {
   const box = document.createElement('div'); box.className = 'modal';
   box.innerHTML = `<div class="box" style="max-width:760px"><h3>배치 최적화 — ${esc(F.name)}</h3>
    ${+F.permitMW > 0 ? (() => { const pr = R.ratedMW / F.permitMW, ok = permitIn(R.ratedMW, +F.permitMW); if (ok) return `<div class="info" style="margin-bottom:6px">허가 설비용량 ${f(+F.permitMW, 1)} MW 기준으로 맞춘 ${F.rows.length}기(정격 ${f(R.ratedMW, 1)} MW, 허가의 ${f(100 * pr, 1)}%)를 배치합니다. 최적화는 터빈 수를 바꾸지 않고 위치만 옮깁니다.</div>`;
-      const mw = R.T.ratedKW / 1000, need = permitNeed(+F.permitMW, mw); const fit = P.turbines.filter(t => t.id !== R.T.id && permitIn(F.rows.length * t.ratedKW / 1000, +F.permitMW));
+      const mw = R.T.ratedKW / 1000, need = permitNeed(+F.permitMW, mw); const fit = P.turbines.filter(t => turbOk(t) && t.id !== R.T.id && permitIn(F.rows.length * t.ratedKW / 1000, +F.permitMW));
       return `<div class="warnbox" style="margin-bottom:6px"><div>${F.rows.length}기 × ${f(mw, 1)} MW = ${f(R.ratedMW, 1)} MW로 허가 ${f(+F.permitMW, 1)} MW의 ${f(100 * pr, 1)}%입니다(±10% 밖). 허가에 맞추려면 ${need}기(${f(need * mw, 1)} MW)가 필요하지만 ${need > F.rows.length ? '구역 안에 간격 기준이나 최소 거리(3D)를 지키며 더 놓을 자리가 없어' : '자리를 줄이지 못해'} ${F.rows.length}기 그대로 배치합니다. 최적화는 터빈 수를 바꾸지 않고 위치만 옮깁니다.<br>방법: ${fit.length ? `<b>${fit.map(t => `${esc(t.model || t.name)} ${F.rows.length}기 = ${f(F.rows.length * t.ratedKW / 1000, 1)} MW (${f(100 * F.rows.length * t.ratedKW / 1000 / F.permitMW, 0)}%)`).join(', ')}</b>로 터빈을 바꾸면 지금 자리 수로 허가에 맞습니다 · ` : ''}구역을 넓히거나 · 배치도에서 자리를 직접 추가하거나 · 간격 기준을 줄여 보세요.</div></div>`; })() : '<div class="hint" style="margin-bottom:6px">최적화는 터빈 수를 바꾸지 않고 위치만 옮깁니다. 허가 용량에 맞춰 기수를 늘리거나 줄이려면 단지 설정에 "허가 설비용량"을 넣으세요.</div>'}
    <div class="hint">터빈 ${F.rows.length}기를 ${Z && Z.bounds.length ? `구역 "${esc(Z.name)}" 경계 안에서` : '구역 경계 없이(현재 위치 주변에서)'}${Z && Z.excl.length ? ' 제외 구역을 피해' : ''} 옮겨 가며 후류 손실이 작은(순발전량이 큰) 배치를 찾습니다. 간격 기준은 주풍향 ${F.spRule.main}D × 직각 ${F.spRule.cross}D입니다. 탐색은 가벼운 계산(방향 5°, 풍속 1 m/s)으로 하고 마지막에 정밀 계산으로 확인합니다. <b>케이블·수심·지반·항로 등은 보지 않으므로 결과는 "후류 기준 상한선"입니다.</b></div>
    ${(() => { const Bz = Z ? Z.bounds.filter(b => b.pts.length >= 3) : []; if (!Bz.length) return ''; const A = Bz.reduce((a, b) => a + W.polyArea(b.pts), 0) / 1e6; const D = R.T.rotor || 100; const per = Math.PI * F.spRule.main * F.spRule.cross * D * D / 4 / 1e6; const nMax = Math.floor(A / per); return `<div class="${nMax < F.rows.length ? 'warnbox' : 'hint'}" style="margin-top:6px"><div>구역 ${f(A, 2)} km²에 간격 기준(${F.spRule.main}D × ${F.spRule.cross}D, 터빈당 약 ${f(per, 2)} km²)으로 들어가는 기수는 대략 ${nMax}기입니다.${nMax < F.rows.length ? ` 지금 ${F.rows.length}기는 기준을 모두 지키기 어렵습니다. 간격 기준을 줄이거나 기수를 줄여야 합니다. 그대로 돌리면 기준 미달을 줄이는 쪽을 우선해 탐색합니다(최소 거리는 직각 방향 기준 또는 3D).` : ''}</div></div>`; })()}
@@ -2228,7 +2232,7 @@ document.addEventListener('click', e => {
   if (a === 'zidel') { const Z = zoneSel(); Z[el.dataset.t] = Z[el.dataset.t].filter(q => q.id !== el.dataset.id); (P.farms || []).forEach(F => F._cache = null); render(); save(); return; }
   if (a === 'fitUndo') { const F = farmSel(); F.noFit = true; busy(() => { farmFitPermit(F); render(); save(); }); return; }
   if (a === 'fitRedo') { const F = farmSel(); F.noFit = false; busy(() => { farmFitPermit(F); render(); save(); }); return; }
-  if (a === 'fcmpRun') { const F = farmSel(); busy(() => { const hubMode = ui.fcmpHub || 'own'; const key = JSON.stringify([F.id, hubMode, F.permitMW, P.turbines.map(t => [t.id, t.hub, t.curve.length, t.rhoRef]), (farmCalc(F) || {}).key]); const list = P.turbines.map(T => { try { return farmWithTurb(F, T, hubMode); } catch (e) { console.warn(e); return null; } }).filter(Boolean); ui.fcmp = { fid: F.id, key, list }; render(); }); return; }
+  if (a === 'fcmpRun') { const F = farmSel(); busy(() => { const hubMode = ui.fcmpHub || 'own'; const key = JSON.stringify([F.id, hubMode, F.permitMW, P.turbines.map(t => [t.id, t.hub, t.curve.length, t.rhoRef]), (farmCalc(F) || {}).key]); const list = P.turbines.filter(turbOk).map(T => { try { return farmWithTurb(F, T, hubMode); } catch (e) { console.warn(e); return null; } }).filter(Boolean); ui.fcmp = { fid: F.id, key, list }; render(); }); return; }
   if (a === 'fcmpMake') { const F = farmSel(), T = turbOf(el.dataset.id); const x = ui.fcmp && ui.fcmp.list.find(q => q.T.id === T.id); const nf = JSON.parse(JSON.stringify({ ...F, _cache: undefined })); nf.id = uid(); nf.name = `${F.name} — ${T.name.replace(/\s*\(추정\)/, '')}`; nf.tid = T.id; nf.hub = x ? x.hub : T.hub; if (x) { const all = [...nf.rows.filter(r => !r.added), ...(nf.parked || [])]; const keep = new Set(x.G.rows.map(r => r.name)); nf.rows = [...all.filter(r => keep.has(r.name)), ...x.G.rows.filter(r => r.added).map(r => { const q = { ...r }; if (nf.speed !== 'manual') delete q.scale; return q; })].sort((a, b) => (a._ord ?? 0) - (b._ord ?? 0)); nf.parked = all.filter(r => !keep.has(r.name)); nf.fitMsg = nf.parked.length ? { removed: nf.parked.map(r => r.name), n0: all.length, need: nf.rows.length } : (x.addedN || []).length ? { addedN: x.addedN, relaxed: x.relaxed, n0: all.length, need: nf.rows.length } : null; nf.noFit = false; } nf.rows.forEach(r => delete r.tid); P.farms.push(nf); ui.farmSel = nf.id; render(); save(); toast(`"${nf.name}" 단지를 만들었습니다.`); return; }
   if (a === 'fcopy') { const F = farmSel(); const nf = JSON.parse(JSON.stringify({ ...F, _cache: undefined })); nf.id = uid(); nf.name = F.name + ' (복제)'; P.farms.push(nf); ui.farmSel = nf.id; render(); save(); return; }
   if (a === 'extadd') { extPasteDialog(); return; }
