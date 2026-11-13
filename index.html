@@ -87,10 +87,12 @@ table.t input{width:64px;text-align:right;border:1px solid var(--line2);border-r
 .tw{overflow:auto;max-height:420px;border:1px solid var(--line2);border-radius:5px}
 .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:14px}
 .chart{border:1px solid var(--line2);border-radius:6px;padding:8px 10px 4px;background:var(--panel);position:relative}
-.chart .ct{font-size:12.5px;font-weight:500;display:flex;justify-content:space-between;align-items:center;gap:6px}
+.chart .ct{font-size:12.5px;font-weight:500;display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap}
+.chart .ct > *{flex-shrink:0}
+.chart .ct .zm{display:flex;align-items:center;gap:6px;margin-right:auto;margin-left:8px;white-space:nowrap}
 .chart .ct .seg{display:flex;gap:2px}
 .chart svg{display:block;width:100%;height:auto;overflow:visible}
-.seg button{border:1px solid var(--line);background:#fff;font-size:11px;padding:1px 7px;border-radius:3px;cursor:pointer}
+.seg button{border:1px solid var(--line);background:#fff;font-size:11px;padding:1px 7px;border-radius:3px;cursor:pointer;white-space:nowrap}
 .seg button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
 .ax text{fill:var(--ink3);font-size:10px;font-family:var(--mono)}
 .ax line,.ax path{stroke:#dcdbd5}
