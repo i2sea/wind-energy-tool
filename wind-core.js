@@ -382,7 +382,8 @@ W.parseTimeSeriesText = function (text, fileName) {
   for (let i = 0; i < Math.min(lines.length, 400); i++) {
     const L = lines[i];
     const mm = L.match(/^([^=\t,;]{2,40})=(.*)$/); if (mm && hi < 0) { meta[mm[1].trim()] = mm[2].trim(); }
-    if (/^\s*"?(timestamp|date|time|일시|datetime)/i.test(L) && /[\t,;]/.test(L)) { hi = i; break; }
+    // 머리글 줄: Timestamp/Date… 로 시작하고 구분자가 있는 줄. "timezone=UTC+9"처럼 '키=값' 줄(뒤에 탭이 붙어도)은 제외
+    if (/^\s*"?(timestamp|date|time|일시|datetime)/i.test(L) && /[\t,;]/.test(L) && !/^[^\t,;]*=/.test(L)) { hi = i; break; }
   }
   if (hi < 0) { // 첫 줄 중 날짜로 시작하는 줄의 바로 앞 줄
     for (let i = 1; i < Math.min(lines.length, 400); i++) if (Number.isFinite(W.parseDate(lines[i].split(/[\t,;]/)[0].replace(/"/g, ''))) && /[\t,;]/.test(lines[i - 1])) { hi = i - 1; break; }
@@ -421,19 +422,20 @@ W.parseTimeSeriesText = function (text, fileName) {
 // 여러 시계열 병합 (열 이름 기준, 시각 정렬, 중복 제거)
 W.mergeSeries = function (list) {
   if (!list.length) return null;
-  const colKey = c => c.role + '|' + c.height + '|' + c.name;
-  const allCols = []; const seen = new Map();
-  for (const s of list) s.columns.forEach(c => { const k = colKey(c); if (!seen.has(k)) { seen.set(k, allCols.length); allCols.push({ ...c }); } });
+  // 높이가 있는 열은 종류+높이로 맞춤(파일마다 열 이름 표기가 조금 달라도, 예: 'Wind Direction (°)' / '(?')
+  const keysOf = s0 => s0.columns.map(c => c.role && Number.isFinite(c.height) ? c.role + '|' + c.height : c.role + '|' + c.height + '|' + c.name); // 같은 종류·높이 열이 둘이면(예전 병합) 하나로 모음
+  const allCols = []; const seen = new Map(); const keyLists = list.map(keysOf);
+  list.forEach((s0, si) => s0.columns.forEach((c, j) => { const k = keyLists[si][j]; if (!seen.has(k)) { seen.set(k, allCols.length); allCols.push({ ...c }); } }));
   const total = list.reduce((a, s) => a + s.ts.length, 0);
   const idx = []; list.forEach((s, si) => { for (let i = 0; i < s.ts.length; i++) idx.push([s.ts[i], si, i]); });
   idx.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
   const ts = new Float64Array(total); const data = allCols.map(() => new Float32Array(total).fill(NaN));
-  const maps = list.map(s => s.columns.map(c => seen.get(colKey(c))));
+  const maps = keyLists.map(ks => ks.map(k => seen.get(k)));
   let n = 0, dup = 0;
   for (const [t, si, i] of idx) {
-    if (n > 0 && ts[n - 1] === t) { dup++; continue; }
+    if (n > 0 && ts[n - 1] === t) { dup++; const m = maps[si], d = list[si].data; for (let j = 0; j < m.length; j++) { const v = d[j][i]; if (Number.isNaN(data[m[j]][n - 1]) && !Number.isNaN(v)) data[m[j]][n - 1] = v; } continue; } // 같은 시각: 빈 칸만 뒤 자료로 채움
     ts[n] = t; const m = maps[si]; const d = list[si].data;
-    for (let j = 0; j < m.length; j++) data[m[j]][n] = d[j][i];
+    for (let j = 0; j < m.length; j++) { const v = d[j][i]; if (!Number.isNaN(v)) data[m[j]][n] = v; }
     n++;
   }
   // 시간 간격(최빈값)
