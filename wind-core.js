@@ -381,7 +381,7 @@ W.parseTimeSeriesText = function (text, fileName) {
   let hi = -1;
   for (let i = 0; i < Math.min(lines.length, 400); i++) {
     const L = lines[i];
-    const mm = L.match(/^([^=\t,;]{2,40})=(.*)$/); if (mm && hi < 0) { meta[mm[1].trim()] = mm[2].trim(); }
+    const mm = L.match(/^([^=\t,;]{2,40})=(.*)$/); if (mm && hi < 0) { meta[mm[1].trim()] = mm[2].replace(/[\t,;\s]+$/, '').trim(); } // 엑셀에서 저장한 CSV는 줄 끝에 쉼표가 붙음
     // 머리글 줄: Timestamp/Date… 로 시작하고 구분자가 있는 줄. "timezone=UTC+9"처럼 '키=값' 줄(뒤에 탭이 붙어도)은 제외
     if (/^\s*"?(timestamp|date|time|일시|datetime)/i.test(L) && /[\t,;]/.test(L) && !/^[^\t,;]*=/.test(L)) { hi = i; break; }
   }
