@@ -1495,6 +1495,13 @@ function mapFrame(allx, ally, W0 = 640, H0 = 460, m = 30) {
   const ox = m + ((W0 - 2 * m) - (x1 - x0) * sc) / 2, oy = H0 - m - ((H0 - 2 * m) - (y1 - y0) * sc) / 2;
   return { W0, H0, m, sc, x0, y0, X: x => ox + (x - x0) * sc, Y: y => oy - (y - y0) * sc, inv: (px, py) => [x0 + (px - ox) / sc, y0 + (oy - py) / sc] };
 }
+// 지도 확대·축소: ui.zoom[key] = { z, cx, cy } (배율, 화면 가운데의 실제 좌표). 표시 크기(점·글자)는 그대로, 좌표 비율만 바꿈
+function mapZoom(M0, key) {
+  const zs = ui.zoom && ui.zoom[key]; let M = M0;
+  if (zs && zs.z > 1.0001) { const sc = M0.sc * zs.z, W0 = M0.W0, H0 = M0.H0; M = { ...M0, sc, X: x => W0 / 2 + (x - zs.cx) * sc, Y: y => H0 / 2 - (y - zs.cy) * sc, inv: (px, py) => [zs.cx + (px - W0 / 2) / sc, zs.cy - (py - H0 / 2) / sc] }; }
+  (ui.mapM || (ui.mapM = {}))[key] = { M, M0 }; return M;
+}
+const zoomBtns = key => `<span class="seg" style="margin-left:8px"><button data-act="zoom" data-k="${key}" data-v="in" title="확대">＋</button><button data-act="zoom" data-k="${key}" data-v="out" title="축소">－</button><button data-act="zoom" data-k="${key}" data-v="fit" title="전체 보기">맞춤</button></span><span class="sub" style="margin-left:6px">${ui.zoom && ui.zoom[key] ? `×${f(ui.zoom[key].z, 1)}` : ''} 휠: 확대·축소 · 빈 곳 끌기: 이동</span>`;
 function mapDeco(M) { const len = [200, 500, 1000, 2000, 5000, 10000, 20000].find(l => l * M.sc > 60) || 20000; return `<g><line x1="${M.m}" x2="${M.m + len * M.sc}" y1="${M.H0 - 8}" y2="${M.H0 - 8}" stroke="#52514e" stroke-width="2"/><text x="${M.m + len * M.sc / 2}" y="${M.H0 - 12}" text-anchor="middle" class="lbl">${len >= 1000 ? len / 1000 + ' km' : len + ' m'}</text></g><g transform="translate(${M.W0 - 22},26)"><path d="M0,-14 L6,6 L0,2 L-6,6Z" fill="#52514e"/><text y="18" text-anchor="middle" class="lbl">N</text></g>`; }
 function zoneSvg(Z, M) {
   let s = `<defs><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="6" stroke="#d64545" stroke-width="1.4"/></pattern></defs>`;
@@ -1547,10 +1554,10 @@ function chartZone(Z) {
   const [zx, zy] = zoneExtent(Z); const farms = (P.farms || []).filter(F => F.zoneId === Z.id); const fx = farms.flatMap(F => F.rows.map(r => r.x)), fy = farms.flatMap(F => F.rows.map(r => r.y));
   const S = P.sites.find(s => siteCoord(s)); let mast = null; if (S && zx.length) { const u = W.latLonToUtm(+S.lat, +S.lon, Z.zone || 52); if (Math.hypot(u.E - zx[0], u.N - zy[0]) < 60000) mast = { x: u.E, y: u.N, n: siteName(S) }; }
   const ax = [...zx, ...fx, ...(mast ? [mast.x] : [])], ay = [...zy, ...fy, ...(mast ? [mast.y] : [])]; if (!ax.length) return '<div class="hint">구역 경계나 제외 구역을 넣으면 지도가 그려집니다.</div>';
-  const M = mapFrame(ax, ay); let s = mapDeco(M) + zoneSvg(Z, M);
+  const zk = 'zone:' + Z.id, M = mapZoom(mapFrame(ax, ay), zk); let s = mapDeco(M) + zoneSvg(Z, M);
   farms.forEach((F, k) => F.rows.forEach(r => { s += `<circle cx="${M.X(r.x)}" cy="${M.Y(r.y)}" r="4" fill="${['#2a78d6', '#7a4fd0', '#d08a1f'][k % 3]}" stroke="#fff" data-tip="${esc(F.name)} · ${esc(r.name)}"/>`; }));
   if (mast) s += `<path d="M${M.X(mast.x)},${M.Y(mast.y) - 8}l7,12h-14z" fill="#eb6834" stroke="#fcfcfb" stroke-width="1.5" data-tip="측정기: ${esc(mast.n)}"/>`;
-  return `<div class="chart"><div class="ct">구역 지도</div><svg viewBox="0 0 ${M.W0} ${M.H0}" style="max-height:520px">${s}</svg><div class="legend"><span><i style="background:transparent;border:1.5px dashed #2a78d6"></i>사업 구역</span><span><i style="background:#f3c2c2;border:1px solid #d64545"></i>제외 구역 (연한 띠 = 이격 거리)</span><span><i style="background:#2f9e6e"></i>풍속 기준점</span>${farms.length ? `<span>● 배치: ${farms.map(F => esc(F.name)).join(', ')}</span>` : ''}${mast ? '<span><i style="background:#eb6834"></i>측정기</span>' : ''}</div></div>`;
+  return `<div class="chart"><div class="ct">구역 지도${zoomBtns(zk)}</div><svg data-zoom="${zk}" viewBox="0 0 ${M.W0} ${M.H0}" style="max-height:520px;overflow:hidden;touch-action:none">${s}</svg><div class="legend"><span><i style="background:transparent;border:1.5px dashed #2a78d6"></i>사업 구역</span><span><i style="background:#f3c2c2;border:1px solid #d64545"></i>제외 구역 (연한 띠 = 이격 거리)</span><span><i style="background:#2f9e6e"></i>풍속 기준점</span>${farms.length ? `<span>● 배치: ${farms.map(F => esc(F.name)).join(', ')}</span>` : ''}${mast ? '<span><i style="background:#eb6834"></i>측정기</span>' : ''}</div></div>`;
 }
 function viewZone() {
   if (!P.zones) P.zones = [];
@@ -1659,7 +1666,7 @@ function chartLayout(F, R, opts = {}) {
   const xs = F.rows.map(r => r.x), ys = F.rows.map(r => r.y);
   if (F.crs === 'utm' && S && siteCoord(S) && xs.length) { const u = W.latLonToUtm(+S.lat, +S.lon, F.zone || 52); if (Math.hypot(u.E - xs[0], u.N - ys[0]) < 60000) mast = { x: u.E, y: u.N }; }
   const [zx, zy] = zoneExtent(Z); const ex = (F.ext || []).flatMap(g => g.rows);
-  const M = mapFrame([...xs, ...(mast ? [mast.x] : []), ...zx, ...ex.map(e => e.x)], [...ys, ...(mast ? [mast.y] : []), ...zy, ...ex.map(e => e.y)]);
+  const zk = 'lay:' + F.id, M = mapZoom(mapFrame([...xs, ...(mast ? [mast.x] : []), ...zx, ...ex.map(e => e.x)], [...ys, ...(mast ? [mast.y] : []), ...zy, ...ex.map(e => e.y)]), zk);
   let s = mapDeco(M) + zoneSvg(Z, M);
   if (R && R.mst && (ui.layCable || opts.cable)) R.mst.edges.forEach(([a, b]) => { s += `<line x1="${M.X(xs[a])}" y1="${M.Y(ys[a])}" x2="${M.X(xs[b])}" y2="${M.Y(ys[b])}" stroke="#9a9993" stroke-width="1.2"/>`; });
   if (R && R.sp) R.sp.bad.forEach(([a, b, d]) => { s += `<line x1="${M.X(xs[a])}" y1="${M.Y(ys[a])}" x2="${M.X(xs[b])}" y2="${M.Y(ys[b])}" stroke="#d64545" stroke-width="2" data-tip="간격 기준 미달: ${esc(F.rows[a].name)}–${esc(F.rows[b].name)} ${f(d, 2)}D"/>`; });
@@ -1674,7 +1681,7 @@ function chartLayout(F, R, opts = {}) {
   if (R) s += windSvg(R, M, F);
   if (opts.edit) ui.layM = M;
   const lg = `<div class="legend">${R ? `<span><i style="background:${RAMP[0]}"></i>효율 높음 ${f(100 * emax, 1)}%</span><span><i style="background:${RAMP[9]}"></i>효율 낮음 ${f(100 * emin, 1)}%</span>` : ''}${mast ? '<span><i style="background:#eb6834"></i>측정기</span>' : ''}${Z && Z.bounds.length ? '<span><i style="background:transparent;border:1.5px dashed #2a78d6"></i>사업 구역</span>' : ''}${Z && Z.excl.length ? '<span><i style="background:#f3c2c2;border:1px solid #d64545"></i>제외 구역</span>' : ''}${R && R.sp && R.sp.bad.length ? '<span><i style="background:#d64545"></i>간격 기준 미달</span>' : ''}${ex.length ? '<span><i style="background:#8a8984"></i>주변 단지</span>' : ''}${R && R.mst && (ui.layCable || opts.cable) ? '<span><i style="background:#9a9993"></i>최소 연결 케이블</span>' : ''}<span>좌표: ${F.crs === 'utm' ? `UTM ${F.zone}N (WGS84)` : '도면 좌표'}</span></div>`;
-  return `<div class="chart"><div class="ct">배치도${opts.edit ? `<span class="seg">${[['', '보기'], ['move', '옮기기'], ['add', '추가'], ['del', '삭제']].map(([k, l]) => `<button data-act="layedit" data-v="${k}" class="${(ui.layEdit || '') === k ? 'on' : ''}">${l}</button>`).join('')}<button data-act="laycable" class="${ui.layCable ? 'on' : ''}">케이블</button><button data-act="drwdxf">도면 DXF</button><button data-act="drwpdf">도면 PDF</button></span>` : ''}</div><svg ${opts.edit ? 'id="laySvg"' : ''} viewBox="0 0 ${M.W0} ${M.H0}" style="max-height:520px;${opts.edit && ui.layEdit === 'add' ? 'cursor:crosshair' : ''}">${s}</svg>${lg}</div>`;
+  return `<div class="chart"><div class="ct">배치도${zoomBtns(zk)}${opts.edit ? `<span class="seg">${[['', '보기'], ['move', '옮기기'], ['add', '추가'], ['del', '삭제']].map(([k, l]) => `<button data-act="layedit" data-v="${k}" class="${(ui.layEdit || '') === k ? 'on' : ''}">${l}</button>`).join('')}<button data-act="laycable" class="${ui.layCable ? 'on' : ''}">케이블</button><button data-act="drwdxf">도면 DXF</button><button data-act="drwpdf">도면 PDF</button></span>` : ''}</div><svg ${opts.edit ? 'id="laySvg"' : ''} data-zoom="${zk}" viewBox="0 0 ${M.W0} ${M.H0}" style="max-height:520px;overflow:hidden;touch-action:none;${opts.edit && ui.layEdit === 'add' ? 'cursor:crosshair' : ''}">${s}</svg>${lg}</div>`;
 }
 // ===== 배치도 바람 표시 (주풍향 화살표·작은 풍배도·간격 기준 축) =====
 function windInfo(R) { if (!R || !R.c || !R.c.r) return null; const secs = R.c.r.sectors.map(x => ({ dir: x.dir, e: x.freq / 100 * x.mwh })); const tot = secs.reduce((a, x) => a + x.e, 0) || 1; secs.forEach(x => x.share = x.e / tot); const ord = secs.slice().sort((a, b) => b.share - a.share); return { secs, main: ord[0], second: ord[1] && ord[1].share > 0.6 * ord[0].share && Math.abs(((ord[1].dir - ord[0].dir + 540) % 360) - 180) > 45 ? ord[1] : null }; }
@@ -2221,6 +2228,7 @@ function viewAep() {
 document.addEventListener('click', e => {
   const el = e.target.closest('[data-act]'); if (!el) { if (e.target.closest('#drop')) $('#fileIn').click(); if (e.target.closest('#dropLayout')) $('#layoutIn').click(); if (e.target.closest('#dropZone')) $('#zoneIn').click(); if (e.target.closest('#dropMcp')) $('#mcpIn').click(); return; }
   const a = el.dataset.act, S = site();
+  if (a === 'zoom') { const k = el.dataset.k, mm = ui.mapM && ui.mapM[k]; if (!mm) return; if (el.dataset.v === 'fit') { zoomTo(k, 1, 0, 0); return; } zoomAt(k, el.dataset.v === 'in' ? 1.5 : 1 / 1.5, mm.M0.W0 / 2, mm.M0.H0 / 2); return; }
   if (a === 'tab') { ui.tab = el.dataset.v; busy(() => { render(); window.scrollTo(0, 0); }); return; }
   if (a === 'fsel') { if (e.target.closest('.x')) return; ui.farmSel = el.dataset.id; busy(render); return; }
   if (a === 'fdel') { const F = P.farms.find(x => x.id === el.dataset.id); confirmBox(`"${F.name}" 단지를 삭제할까요?`, () => { P.farms = P.farms.filter(x => x.id !== F.id); ui.farmSel = null; render(); save(); }); return; }
@@ -2368,6 +2376,18 @@ document.addEventListener('mousedown', e => {
 });
 document.addEventListener('mousemove', e => { if (!layDrag) return; const [px, py] = svgPt(layDrag.svg, e); layDrag.el.setAttribute('cx', px); layDrag.el.setAttribute('cy', py); if (layDrag.txt) { layDrag.txt.setAttribute('x', px + 9); layDrag.txt.setAttribute('y', py + 3); } layDrag.p = [px, py]; });
 document.addEventListener('mouseup', () => { if (!layDrag) return; const d = layDrag; layDrag = null; if (!d.p) return; const F = farmSel(); const [x, y] = ui.layM.inv(d.p[0], d.p[1]); F.rows[d.i].x = Math.round(x); F.rows[d.i].y = Math.round(y); F._cache = null; busy(() => { render(); save(); }); });
+// 지도 확대·축소·이동
+function zoomTo(key, z, cx, cy) { ui.zoom = ui.zoom || {}; const mm = ui.mapM && ui.mapM[key]; if (!mm) return; z = Math.min(60, Math.max(1, z)); if (z <= 1.0001) delete ui.zoom[key]; else ui.zoom[key] = { z, cx, cy }; zoomRender(); }
+let zoomRaf = 0; function zoomRender() { if (zoomRaf) return; zoomRaf = requestAnimationFrame(() => { zoomRaf = 0; const y = window.scrollY; render(); window.scrollTo(0, y); }); }
+function zoomAt(key, factor, px, py) { const mm = ui.mapM && ui.mapM[key]; if (!mm) return; const M = mm.M, M0 = mm.M0, zs = (ui.zoom || {})[key] || { z: 1 };
+  const [x, y] = M.inv(px, py), z = Math.min(60, Math.max(1, zs.z * factor)), sc = M0.sc * z; zoomTo(key, z, x - (px - M0.W0 / 2) / sc, y + (py - M0.H0 / 2) / sc); }
+document.addEventListener('wheel', e => { const svg = e.target.closest && e.target.closest('svg[data-zoom]'); if (!svg) return; e.preventDefault(); const [px, py] = svgPt(svg, e); zoomAt(svg.dataset.zoom, e.deltaY < 0 ? 1.25 : 1 / 1.25, px, py); }, { passive: false });
+let zoomPan = null;
+document.addEventListener('mousedown', e => { if (e.button !== 0) return; const svg = e.target.closest && e.target.closest('svg[data-zoom]'); if (!svg) return;
+  if (svg.id === 'laySvg' && ui.layEdit && (ui.layEdit !== 'move' || (e.target.dataset && e.target.dataset.ti != null))) return; // 편집(추가·삭제·옮기기)이 먼저
+  const k = svg.dataset.zoom; if (!(ui.zoom && ui.zoom[k])) return; zoomPan = { svg, k, sx: e.clientX, sy: e.clientY, a: svg.getScreenCTM().a }; svg.style.cursor = 'grabbing'; e.preventDefault(); });
+document.addEventListener('mousemove', e => { if (!zoomPan) return; const dx = (e.clientX - zoomPan.sx) / zoomPan.a, dy = (e.clientY - zoomPan.sy) / zoomPan.a; const vb = zoomPan.svg.viewBox.baseVal; zoomPan.svg.setAttribute('viewBox', `${-dx} ${-dy} ${vb.width} ${vb.height}`); zoomPan.dx = dx; zoomPan.dy = dy; });
+document.addEventListener('mouseup', () => { if (!zoomPan) return; const p = zoomPan; zoomPan = null; if (!p.dx && !p.dy) { p.svg.style.cursor = ''; return; } const zs = ui.zoom[p.k], sc = ui.mapM[p.k].M.sc; zoomTo(p.k, zs.z, zs.cx - p.dx / sc, zs.cy + p.dy / sc); });
 document.addEventListener('dragover', e => { e.preventDefault(); const d = (e.target.closest && e.target.closest('#dropMcp')) || $('#drop') || $('#dropLayout') || $('#dropZone'); if (d) d.classList.add('over'); });
 document.addEventListener('dragleave', e => { if (!e.relatedTarget) { const d = $('#drop'); if (d) d.classList.remove('over'); } });
 document.addEventListener('drop', e => { e.preventDefault(); document.querySelectorAll('.drop').forEach(d => d.classList.remove('over')); const fl = [...e.dataTransfer.files]; if (!fl.length) return; if (ui.tab === 'farm' || ui.tab === 'zone') handleLayoutFiles(fl); else if (ui.tab === 'turb') importTurbinePdf(fl.filter(x => /\.pdf$/i.test(x.name))); else if (ui.tab === 'wind') { if (e.target.closest && e.target.closest('#dropMcp')) { const D = dsSel(); if (D) mcpLoad(D, fl); } else handleFiles(fl); } });
