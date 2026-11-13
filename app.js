@@ -782,7 +782,7 @@ function mcpCard(D, C) {
   const st = r.st, chg = 100 * (st.mean / hub.mean - 1), idx = 100 * (r.refLT / r.conc.ref - 1), warn = [];
   if (R.name && R.name.includes(',')) warn.push(`기준 자료에 관측소가 섞여 있습니다(${R.name}). 같은 시각 값이 서로 덮어써져 결과를 믿을 수 없습니다. "기준 자료 지우기" 후 한 관측소 파일만 넣어 주세요.`);
   { const rd = r.day && Number.isFinite(r.day.r) ? r.day.r : null; if (rd != null ? rd < 0.7 : r.all.r < 0.6) warn.push(`상관이 낮습니다(일평균 r ${rd != null ? f(rd, 2) : '-'}, ${f(R.step / 3600000, R.step % 3600000 ? 1 : 0)}시간 r ${f(r.all.r, 2)}). 기준 관측소가 멀거나 지형 영향이 커서 장기 보정의 불확도가 큽니다. 보통 일평균 r 0.7 이상, 좋게는 0.8 이상을 씁니다.`); }
-  if (r.best && r.best.lag !== (+o.lag || 0) && r.best.r - r.all.r > 0.01) warn.push(`시각을 ${r.best.lag > 0 ? '+' : ''}${r.best.lag}시간 맞추면 상관이 더 높습니다(r ${f(r.best.r, 3)}). 두 자료의 시간대(UTC·KST)와 시각 기준(구간 시작·끝)을 확인하세요.`);
+  if (r.best && r.best.lag !== (+o.lag || 0) && r.best.r - r.all.r > 0.03) warn.push(`시각을 ${r.best.lag > 0 ? '+' : ''}${r.best.lag}시간 맞추면 상관이 더 높습니다(r ${f(r.best.r, 3)}). 두 자료의 시간대(UTC·KST)와 시각 기준(구간 시작·끝)을 확인하세요.`);
   if (r.conc.n * (R.step / 3600000) < 0.8 * 8766) warn.push(`겹친 기간이 1년이 안 됩니다(${fi(r.conc.n)}개 = 약 ${f(r.conc.n * R.step / 86400000 / 30.44, 1)}개월치, ${W.fmtDate(r.conc.from)} ~ ${W.fmtDate(r.conc.to - 1)}). 계절 편향이 남을 수 있습니다. 측정 자료가 1년 다 들어갔는지 확인하세요.`);
   if ((r.ltTo - r.ltFrom) / 3.15576e10 < 5) warn.push('장기 기간이 5년보다 짧습니다. 보통 10년 이상을 씁니다.');
   h += `<div class="big" style="margin-top:10px"><div><b>${fi(r.conc.n)}</b><span>겹친 시간 (${W.fmtDate(r.conc.from)} ~ ${W.fmtDate(r.conc.to - 1)})</span></div><div><b>${f(r.all.r, 3)}</b><span>상관계수 r (${f(R.step / 3600000, R.step % 3600000 ? 1 : 0)}시간)</span></div><div><b>${r.day && Number.isFinite(r.day.r) ? f(r.day.r, 3) : '-'}</b><span>일평균 상관계수 (${r.day ? fi(r.day.n) : 0}일)</span></div>
